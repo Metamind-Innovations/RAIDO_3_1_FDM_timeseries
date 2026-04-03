@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Data
+DBCDK-orholm-prediction-demo-4b15ae5/
+images_fdm/
+
+# Results
+synthetic_timeseries.csv

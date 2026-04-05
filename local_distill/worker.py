@@ -208,20 +208,54 @@ def main():
         "target_std": local_std,
     })
 
+    # ── Shared teacher model (populated via Phase 1 FedAvg) ───────────────────
+    teacher = LSTMRegressor(
+        input_dim=MODEL_INPUT_DIM,
+        hidden_dim=args.hidden_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout,
+    )
+
     # ── Message loop ──────────────────────────────────────────────────────────
     while True:
         msg = recv_msg(sock)
         msg_type = msg.get("type")
 
-        # ── Distillation round — gradients from LOCAL model (private) ─────────
-        if msg_type == "distill_round":
+        # ── Phase 1: FL round — train on global teacher weights ───────────────
+        if msg_type == "fl_round":
+            teacher.load_state_dict(bytes_to_state_dict(msg["state_blob"]))
+            teacher, tr_loss, va_loss = train_local_model(
+                model=teacher,
+                train_loader=fl_loader,
+                val_loader=val_loader,
+                device=device,
+                epochs=int(msg["local_epochs"]),
+                lr=float(msg["lr"]),
+                algorithm="fedavg",
+                patience=args.patience,
+            )
+            send_msg(sock, {
+                "type": "fl_result",
+                "client_id": args.client_id,
+                "state_blob": state_dict_to_bytes(teacher.state_dict()),
+                "metrics": {"train_loss": tr_loss, "val_loss": va_loss},
+            })
+
+        # ── Phase 1: Receive frozen teacher for distillation ──────────────────
+        elif msg_type == "set_teacher":
+            teacher.load_state_dict(bytes_to_state_dict(msg["state_blob"]))
+            teacher.eval()
+            send_msg(sock, {"type": "set_teacher_ack"})
+
+        # ── Distillation round — gradients from FEDERATED teacher ─────────────
+        elif msg_type == "distill_round":
             syn_np = np.array(msg["synthetic_series"], dtype=np.float32)
             synthetic_series = torch.tensor(syn_np, dtype=torch.float32)
 
-            # Gradients from local private model on a real batch
+            # Gradients from federated teacher on a real batch
             xb_real, yb_real = next(iter(fl_loader))
             local_grads = compute_teacher_gradients(
-                local_model, xb_real, yb_real, device
+                teacher, xb_real, yb_real, device
             )
             grads_serialized = {k: v.cpu().tolist() for k, v in local_grads.items()}
 

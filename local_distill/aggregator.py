@@ -36,12 +36,13 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from comm_utils import recv_msg, send_msg, state_dict_to_bytes
+from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
 from gen_fl_core import (
     MODEL_INPUT_DIM,
     GEN_SEQ_OUT,
     LATENT_DIM,
     SeqDataset,
+    fedavg,
     save_synthetic_timeseries_csv,
     weighted_average_metric,
     windows_from_synthetic_series,
@@ -155,6 +156,11 @@ def main():
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=5200)
     parser.add_argument("--num_clients", type=int, default=3)
+    # Federated learning (Phase 1)
+    parser.add_argument("--fl_rounds", type=int, default=10)
+    parser.add_argument("--local_epochs", type=int, default=5)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--fl_algo", type=str, default="fedavg", choices=["fedavg"])
     # Distillation
     parser.add_argument("--distill_iters", type=int, default=5000)
     parser.add_argument("--gen_batch", type=int, default=4)
@@ -202,11 +208,72 @@ def main():
     client_weights = [int(reg["train_samples"]) for _, reg in clients]
 
     # ── Show per-client local model baselines ─────────────────────────────────
+    # (trained privately before connecting — weights never shared)
     print("\n[Aggregator] ── Local model baselines (private, not shared) ──")
     for _, reg in sorted(clients, key=lambda x: int(x[1]["client_id"])):
         m = reg["baseline_metrics"]
         print(f"  Client {reg['client_id']} | "
               f"RMSE={m['rmse']:.6f} | MAE={m['mae']:.6f} | R2={m['r2']:.6f}")
+
+    # ── Phase 1: Federated Teacher Training ──────────────────────────────────
+    print(f"\n[Aggregator] ── Phase 1: Federated Teacher ({args.fl_algo}, {args.fl_rounds} rounds) ──")
+
+    global_teacher = LSTMRegressor(
+        input_dim=MODEL_INPUT_DIM,
+        hidden_dim=args.hidden_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout,
+    ).to(device)
+
+    for round_idx in range(1, args.fl_rounds + 1):
+        blob = state_dict_to_bytes(global_teacher.state_dict())
+        for conn, _ in clients:
+            send_msg(conn, {
+                "type": "fl_round",
+                "state_blob": blob,
+                "local_epochs": args.local_epochs,
+                "lr": args.lr,
+            })
+
+        client_states, round_metrics = [], []
+        for conn, reg in clients:
+            r = recv_msg(conn)
+            client_states.append(bytes_to_state_dict(r["state_blob"]))
+            round_metrics.append((int(reg["client_id"]), r["metrics"]))
+
+        global_teacher.load_state_dict(fedavg(client_states, client_weights))
+
+        for cid, m in sorted(round_metrics, key=lambda x: x[0]):
+            print(f"  Round {round_idx} | Client {cid} | "
+                  f"train={m['train_loss']:.6f} | val={m['val_loss']:.6f}")
+
+        # Evaluate teacher on each client's holdout
+        blob = state_dict_to_bytes(global_teacher.state_dict())
+        for conn, _ in clients:
+            send_msg(conn, {"type": "evaluate", "state_blob": blob,
+                            "eval_label": f"teacher_r{round_idx}"})
+        eval_results = []
+        for conn, _ in clients:
+            r = recv_msg(conn)
+            eval_results.append(r)
+        total_w = float(sum(client_weights))
+        w_rmse = sum(
+            r["metrics"]["rmse"] * w
+            for r, w in zip(eval_results, client_weights)
+        ) / total_w
+        print(f"  Round {round_idx} teacher holdout | RMSE={w_rmse:.6f}")
+
+    print("[Aggregator] Phase 1 complete.")
+
+    # Freeze teacher and send to all clients for distillation
+    blob = state_dict_to_bytes(global_teacher.state_dict())
+    for conn, _ in clients:
+        send_msg(conn, {"type": "set_teacher", "state_blob": blob})
+    for conn, _ in clients:
+        ack = recv_msg(conn)
+        if ack.get("type") != "set_teacher_ack":
+            raise ValueError("Expected set_teacher_ack.")
+    print("[Aggregator] Teacher frozen and sent to all clients.")
 
     # ── Compute weighted-average normalisation stats ───────────────────────────
     total_w = float(sum(client_weights))

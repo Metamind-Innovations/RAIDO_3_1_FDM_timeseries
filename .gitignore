@@ -208,10 +208,7 @@ __marimo__/
 
 # Data
 DBCDK-orholm-prediction-demo-4b15ae5/
-images_fdm/
 
 # Results
-synthetic_timeseries.csv
-1_results_4086490d31f1b185a283730c78676cecb87db597/
-2_results_5c92a7b939e5e6e8f6b95ffd3a1e37dcb3a56a1e
-local_distill/1_results_8995ca2d18e81737e92e1af54d91cb51380919af
+privacy-preserving/results
+local_distill/results

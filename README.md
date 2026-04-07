@@ -383,6 +383,224 @@ Typical outputs produced by the pipeline:
 
 ---
 
+---
+
+## Privacy-Preserving Federated Dataset Distillation
+
+This directory (`privacy-preserving/`) contains an enhanced pipeline that generates **synthetic time series data** using federated learning and adversarial distillation. The goal is to produce a synthetic dataset that can train a student model with performance close to the federated teacher — without sharing any raw client data.
+
+### Architecture Overview
+
+The pipeline uses a **federated teacher + adversarial generator** setup:
+
+```
+┌─────────────┐         ┌─────────────┐
+│   Client 1  │         │   Client 2  │
+│  (Worker)   │         │  (Worker)   │
+└──────┬──────┘         └──────┬──────┘
+       │                        │
+       │  Socket: model weights │
+       │  teacher gradients      │
+       │  discriminator losses   │
+       ▼                        ▼
+┌─────────────────────────────────────────┐
+│            Aggregator Server            │
+│                                         │
+│  ┌─────────────┐  ┌──────────────────┐ │
+│  │   Teacher   │  │    Generator     │ │
+│  │  (LSTM)     │  │  (1D CNN decoder)│ │
+│  │  global FL  │  │  z → 512-step    │ │
+│  └─────────────┘  └──────────────────┘ │
+│                                         │
+│  ┌─────────────────────────────────────┐│
+│  │  Student (LSTM, reinit + retrain)  ││
+│  └─────────────────────────────────────┘│
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+         synthetic_timeseries.csv
+```
+
+### Models
+
+**Teacher (LSTMRegressor)**
+- Identical architecture to the main pipeline: 2-layer LSTM + FC head
+- Input: `[%RH + 4 time features] × seq_len`
+- Output: next-step `%RH` prediction
+- Trained via FedAvg across clients, then frozen
+
+**Generator (1D CNN decoder)**
+- Input: random latent vector `z ∈ ℝ¹²⁸`
+- Output: synthetic `%RH` series `[batch, 512, 1]`
+- Upsamples via transposed convolutions (8 → 512 timesteps)
+- Values scaled to `[0, 100]` via Sigmoid
+
+**Discriminator (1D CNN)**
+- Input: 512-step `%RH` series `[batch, 512, 1]`
+- Output: real/fake score `[batch, 1]`
+- Runs **locally on each client** (never shares raw data)
+- Standard GAN discriminator trained against Generator output
+
+**Student (LSTMRegressor)**
+- Same architecture as Teacher
+- Reinitialized and retrained on synthetic data every K distillation iterations
+- Uses aggregated normalization stats from all clients
+
+### Data Handling
+
+- Each client loads its own CSV (semicolon-delimited, columns: `DATE AND TIME GMT`, `%RH`)
+- Time features derived: `hour_sin`, `hour_cos`, `month_sin`, `month_cos`
+- Model input dimension: 5 (`%RH` + 4 time features)
+- Sequence length: 24 (default), window = past 24 timesteps → predict next `%RH`
+- **Balancing**: all clients trimmed to the shortest dataset length
+- Split: 70% train+val, 30% holdout (sequential, no shuffling)
+
+### Distillation Process
+
+The pipeline runs in three phases:
+
+#### Phase 1: Federated Teacher Training
+
+1. Aggregator initializes global Teacher weights
+2. Broadcasts to all clients
+3. Each client trains locally for `local_epochs` rounds
+4. Client updates aggregated via FedAvg
+5. Repeat for `fl_rounds` iterations
+6. Final Teacher frozen and distributed to all clients
+
+#### Phase 2: Generator Distillation Loop
+
+For each iteration (default 5000):
+
+1. **Generator** produces synthetic 512-step `%RH` series from random `z`
+2. **Student** computes gradients on synthetic windows (second-order via `create_graph=True`)
+3. Synthetic series sent to all clients
+4. Each client:
+   - Computes **teacher gradients** on real batch (frozen teacher)
+   - Computes **discriminator gradients** w.r.t. synthetic input (adversarial loss)
+   - Updates local Discriminator on real vs fake series
+5. Aggregator collects and averages:
+   - Teacher gradients (weighted by client sample count)
+   - Discriminator input gradients (adversarial signal)
+6. Generator updates via backprop with loss:
+   ```
+   L_total = w_gradient × L_gradient
+           + w_adversarial × L_adversarial
+           + w_smooth × L_smooth
+           + w_dist × L_distribution
+   ```
+   - **L_gradient**: MSE between student grads and aggregated teacher grads (knowledge transfer)
+   - **L_adversarial**: Generator tries to fool local discriminators (realistic patterns)
+   - **L_smooth**: Penalizes large hour-to-hour `%RH` jumps (temporal plausibility)
+   - **L_distribution**: Matches synthetic mean/std to real data statistics
+7. Student reinitialized and retrained on current synthetic batch every K iterations
+
+#### Phase 3: Generate Synthetic Dataset
+
+- Generator produces 35% of total balanced rows
+- Output: `synthetic_timeseries.csv` (semicolon-delimited, matches real data format)
+- Saved alongside: `gen_teacher.pt`, `gen_generator.pt`, `gen_stats.json`
+
+### Evaluation Scripts
+
+**evaluate_distilled.py** — Trains Student on synthetic data, compares:
+- Local baseline (client's own model)
+- Federated Teacher (real holdout)
+- Student distilled (synthetic → real holdout)
+
+**evaluate_judge.py** — Independent evaluation using CNN1DRegressor:
+- Phase A: Judge trained on each client's **real** data
+- Phase B: Judge trained on **synthetic** data
+- Measures RMSE/R2 gap between real vs synthetic training
+
+### Final Results
+
+Results from `results/2_results_5c92a7b939e5e6e8f6b95ffd3a1e37dcb3a56a1e/`:
+
+```
+Judge Evaluation (CNN1DRegressor) on REAL holdout data
+
+Weighted average across all clients:
+  Real (local)       | RMSE=0.741436 | MAE=0.477088 | R2=0.977241
+  Synthetic          | RMSE=0.818900 | MAE=0.502866 | R2=0.980337
+
+  RMSE gap (Synthetic - Real): +0.077464
+  R2   gap (Synthetic - Real): +0.003096
+```
+
+The small gap indicates high distillation quality — the synthetic data generalizes well to real client holdout sets.
+
+### How to Run
+
+#### Full Pipeline
+
+```bash
+# Terminal 1: Client 1 (Church)
+python gen_worker.py \
+    --data_path /path/to/church.csv \
+    --host 127.0.0.1 --port 5100 \
+    --client_id 1 --balanced_len 36842 \
+    --seq_len 24 --batch_size 32 \
+    --hidden_dim 64 --num_layers 2 --dropout 0.2 \
+    --device cpu --baseline_epochs 20 --baseline_lr 1e-3
+
+# Terminal 2: Client 2 (Museum)
+python gen_worker.py \
+    --data_path /path/to/museum.csv \
+    --host 127.0.0.1 --port 5100 \
+    --client_id 2 --balanced_len 36842 \
+    --seq_len 24 --batch_size 32 \
+    --hidden_dim 64 --num_layers 2 --dropout 0.2 \
+    --device cpu --baseline_epochs 20 --baseline_lr 1e-3
+
+# Terminal 3: Aggregator
+python gen_aggregator.py \
+    --host 0.0.0.0 --port 5100 \
+    --num_clients 2 --balanced_len 36842 \
+    --fl_rounds 10 --local_epochs 5 --lr 1e-3 \
+    --distill_iters 5000 \
+    --student_reinit_every 50 --student_steps 10 \
+    --w_gradient 1.0 --w_adversarial 0.1 --w_smooth 0.05 --w_dist 1.0 \
+    --synthetic_out synthetic_timeseries.csv \
+    --device cuda
+```
+
+#### Evaluate Distillation Quality
+
+```bash
+# Reconnect to workers for 3-way comparison (baseline, teacher, student)
+python evaluate_distilled.py \
+    --synthetic_csv synthetic_timeseries.csv \
+    --teacher_pt gen_teacher.pt \
+    --host 0.0.0.0 --port 5101 \
+    --num_clients 2 --balanced_len 36842 \
+    --seq_len 24 --batch_size 32 \
+    --hidden_dim 64 --num_layers 2 --dropout 0.2 \
+    --student_epochs 30 --student_lr 5e-4 \
+    --device cpu
+
+# Independent judge evaluation (no workers needed)
+python evaluate_judge.py \
+    --client_csvs /path/to/church.csv /path/to/museum.csv \
+    --synthetic_csv synthetic_timeseries.csv \
+    --stats_json gen_stats.json \
+    --balanced_len 36842 \
+    --seq_len 24 --batch_size 32 \
+    --hidden_channels 64 --dropout 0.2 \
+    --judge_epochs 30 --judge_lr 5e-4 \
+    --device cuda
+```
+
+### Output Files
+
+After running `gen_aggregator.py`:
+- `synthetic_timeseries.csv` — Synthetic `%RH` time series (35% of balanced data)
+- `gen_teacher.pt` — Federated teacher model weights
+- `gen_generator.pt` — Generator model weights
+- `gen_stats.json` — Aggregated normalization stats (`target_mean`, `target_std`)
+
+---
+
 ## Summary
 
 This implementation provides a full end-to-end pipeline for:

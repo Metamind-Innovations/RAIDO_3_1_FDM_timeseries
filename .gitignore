@@ -208,6 +208,7 @@ __marimo__/
 
 # Data
 DBCDK-orholm-prediction-demo-4b15ae5/
+pilot_data/
 
 # Results
 src/results

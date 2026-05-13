@@ -1,0 +1,57 @@
+[Judge] Stats from results_4086490d31f1b185a283730c78676cecb87db597/gen_stats.json: mean=55.9031 std=6.0528
+[Client 1] annisse-indoor-climate-data_2014-2018.csv | train=20607 val=5158 holdout=11053 windows | local mean=61.12 std=7.89
+[Client 2] oerholm-indoor-climate-data_2009-2021.csv | train=20607 val=5158 holdout=11053 windows | local mean=50.68 std=4.22
+
+============================================================
+  Phase A: Judge trained on each client's REAL data
+============================================================
+
+[Judge-Real] Client 1 — training fresh CNN judge on real data...
+  [Judge-Real-C1] epoch   1/30 | train=0.105952 | val=0.058026
+  [Judge-Real-C1] epoch   5/30 | train=0.047756 | val=0.020984
+  [Judge-Real-C1] epoch  10/30 | train=0.040371 | val=0.029795
+  [Judge-Real-C1] epoch  15/30 | train=0.038218 | val=0.017674
+  [Judge-Real-C1] done | best_train=0.039563 | best_val=0.014985
+[Judge-Real C1] RMSE=0.920831 | MAE=0.549437 | R2=0.992433
+
+[Judge-Real] Client 2 — training fresh CNN judge on real data...
+  [Judge-Real-C2] epoch   1/30 | train=0.101044 | val=0.033758
+  [Judge-Real-C2] epoch   5/30 | train=0.042034 | val=0.020504
+  [Judge-Real-C2] epoch  10/30 | train=0.033444 | val=0.009141
+  [Judge-Real-C2] done | best_train=0.034892 | best_val=0.008016
+[Judge-Real C2] RMSE=0.562041 | MAE=0.404739 | R2=0.962048
+
+============================================================
+  Phase B: Judge trained on SYNTHETIC data
+============================================================
+
+[Judge-Syn] Training fresh CNN judge on synthetic data | total=25765 train=23189 val=2576 windows
+  [Judge-Syn] epoch   1/30 | train=0.099764 | val=0.029254
+  [Judge-Syn] epoch   5/30 | train=0.033032 | val=0.019649
+  [Judge-Syn] epoch  10/30 | train=0.027205 | val=0.006383
+  [Judge-Syn] epoch  15/30 | train=0.025223 | val=0.005513
+  [Judge-Syn] epoch  20/30 | train=0.023428 | val=0.002190
+  [Judge-Syn] epoch  25/30 | train=0.022434 | val=0.004489
+  [Judge-Syn] done | best_train=0.023428 | best_val=0.002190
+[Judge-Syn C1] RMSE=1.161156 | MAE=0.694826 | R2=0.987968
+[Judge-Syn C2] RMSE=0.476644 | MAE=0.310905 | R2=0.972705
+
+==================================================================================
+  Judge Evaluation (CNN1DRegressor) on REAL holdout data
+==================================================================================
+  Client   Trained on               RMSE        MAE         R2
+  -------- ------------------ ---------- ---------- ----------
+  1        Real (local)         0.920831   0.549437   0.992433
+  1        Synthetic            1.161156   0.694826   0.987968
+  -------- ------------------ ---------- ---------- ----------
+  2        Real (local)         0.562041   0.404739   0.962048
+  2        Synthetic            0.476644   0.310905   0.972705
+  -------- ------------------ ---------- ---------- ----------
+
+  Weighted average across all clients:
+  Real (local)       | RMSE=0.741436 | MAE=0.477088 | R2=0.977241
+  Synthetic          | RMSE=0.818900 | MAE=0.502866 | R2=0.980337
+
+  RMSE gap (Synthetic - Real): +0.077464
+  R2   gap (Synthetic - Real): +0.003096
+  (smaller gap = better distillation quality)

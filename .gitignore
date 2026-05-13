@@ -211,4 +211,5 @@ DBCDK-orholm-prediction-demo-4b15ae5/
 
 # Results
 privacy-preserving/results
-local_distill/results
+
+.vscode

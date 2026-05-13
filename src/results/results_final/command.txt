@@ -1,0 +1,1 @@
+python gen_aggregator.py --host 0.0.0.0 --port 5100 --num_clients 2 --balanced_len 36842 --fl_rounds 10 --local_epochs 5 --distill_iters 5000 --student_reinit_every 50 --student_steps 10 --w_diversity 0.0 --w_smooth 0.05 --w_dist 1.0 --synthetic_out synthetic_timeseries.csv --device cuda

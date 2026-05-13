@@ -1,9 +1,12 @@
 import argparse
+import os
+import sys
 import socket
 from typing import Dict, List, Tuple
 
 import torch
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
 from fl_core import (
     MODEL_INPUT_DIM,

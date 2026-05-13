@@ -1,0 +1,265 @@
+[Aggregator] Total balanced rows: 73684
+[Aggregator] Synthetic target rows (35%%): 25789
+[Aggregator] Generator calls to reach target: 51
+[Aggregator] Listening on 0.0.0.0:5100
+[Aggregator] Client 1 connected | train_samples=20607 | holdout_samples=11053 | baseline RMSE=0.997518
+[Aggregator] Client 2 connected | train_samples=20607 | holdout_samples=11053 | baseline RMSE=0.391276
+
+[Aggregator] ── Stage-0: Baseline (local models) ──
+  Client 1 | RMSE=0.997518 | MAE=0.578851 | R2=0.991121
+  Client 2 | RMSE=0.391276 | MAE=0.240666 | R2=0.981607
+
+
+[Aggregator] ── Phase 1: Federated Teacher (fedavg, 5 rounds) ──
+  Round 1 | Client 1 | train=0.030463 | val=0.014511
+  Round 1 | Client 2 | train=0.022584 | val=0.006582
+  Round 1 teacher holdout | RMSE=0.817040 | MAE=0.575000 | R2=0.981618
+  Round 2 | Client 1 | train=0.027764 | val=0.013823
+  Round 2 | Client 2 | train=0.021321 | val=0.006408
+  Round 2 teacher holdout | RMSE=0.690129 | MAE=0.414168 | R2=0.985724
+  Round 3 | Client 1 | train=0.027565 | val=0.014304
+  Round 3 | Client 2 | train=0.021079 | val=0.006246
+  Round 3 teacher holdout | RMSE=0.694719 | MAE=0.416453 | R2=0.985559
+  Round 4 | Client 1 | train=0.026171 | val=0.012639
+  Round 4 | Client 2 | train=0.019260 | val=0.006128
+  Round 4 teacher holdout | RMSE=0.634545 | MAE=0.357780 | R2=0.987099
+  Round 5 | Client 1 | train=0.026064 | val=0.013341
+  Round 5 | Client 2 | train=0.019695 | val=0.006094
+  Round 5 teacher holdout | RMSE=0.622192 | MAE=0.336670 | R2=0.987132
+
+[Aggregator] Phase 1 complete — Final teacher on real holdout:
+
+  Client 1 | RMSE=0.842539 | MAE=0.454639 | R2=0.993665
+  Client 2 | RMSE=0.401844 | MAE=0.218701 | R2=0.980600
+  Weighted avg | RMSE=0.622192 | MAE=0.336670 | R2=0.987132
+[Aggregator] Teacher weights sent to all clients (frozen for Phase 2).
+[Aggregator] Aggregated normalisation stats: mean=55.9031  std=6.0528
+
+
+[Aggregator] ── Phase 2: Distillation loop (5000 iters) ──
+/home/gtsiamitas/projects/RAIDO_3_1_FDM_timeseries/gen_aggregator.py:466: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:836.)
+  f"L_grad={float(loss_gradient):.6f} | "
+  Iter    1/5000 | L_grad=0.148789 | L_div=-231.270920 | L_smooth=478.049530 | L_dist=2.331434 | Total=26.382700
+  Iter   50/5000 | L_grad=0.047035 | L_div=-117.209373 | L_smooth=147.908875 | L_dist=0.637324 | Total=8.079803
+  Iter  100/5000 | L_grad=0.003155 | L_div=-36.063202 | L_smooth=25.385193 | L_dist=0.001664 | Total=1.274078
+  [Student reinit] at iter 100
+  Iter  150/5000 | L_grad=0.030717 | L_div=-28.596277 | L_smooth=4.237075 | L_dist=0.013627 | Total=0.256198
+  Iter  200/5000 | L_grad=0.020543 | L_div=-27.208254 | L_smooth=1.914721 | L_dist=0.019205 | Total=0.135484
+  [Student reinit] at iter 200
+  Iter  250/5000 | L_grad=0.012392 | L_div=-27.286261 | L_smooth=1.465713 | L_dist=0.018910 | Total=0.104588
+  Iter  300/5000 | L_grad=0.011233 | L_div=-25.927023 | L_smooth=1.088449 | L_dist=0.025498 | Total=0.091153
+  [Student reinit] at iter 300
+  Iter  350/5000 | L_grad=0.014771 | L_div=-25.054451 | L_smooth=0.754116 | L_dist=0.031388 | Total=0.083864
+  Iter  400/5000 | L_grad=0.004753 | L_div=-23.166796 | L_smooth=0.447858 | L_dist=0.044569 | Total=0.071715
+  [Student reinit] at iter 400
+  Iter  450/5000 | L_grad=0.026787 | L_div=-40.525440 | L_smooth=0.340020 | L_dist=0.003163 | Total=0.046951
+  Iter  500/5000 | L_grad=0.009231 | L_div=-33.359367 | L_smooth=0.247400 | L_dist=0.002235 | Total=0.023836
+  [Student reinit] at iter 500
+  Iter  550/5000 | L_grad=0.027261 | L_div=-31.062237 | L_smooth=0.195116 | L_dist=0.006758 | Total=0.043775
+  Iter  600/5000 | L_grad=0.035283 | L_div=-37.390785 | L_smooth=0.170511 | L_dist=0.000140 | Total=0.043948
+  [Student reinit] at iter 600
+  Iter  650/5000 | L_grad=0.009529 | L_div=-39.427437 | L_smooth=0.161128 | L_dist=0.001726 | Total=0.019311
+  Iter  700/5000 | L_grad=0.013329 | L_div=-39.015060 | L_smooth=0.144573 | L_dist=0.001180 | Total=0.021737
+  [Student reinit] at iter 700
+  Iter  750/5000 | L_grad=0.096906 | L_div=-40.270153 | L_smooth=0.128594 | L_dist=0.002720 | Total=0.106056
+  Iter  800/5000 | L_grad=0.059410 | L_div=-43.009647 | L_smooth=0.110825 | L_dist=0.008576 | Total=0.073527
+  [Student reinit] at iter 800
+  Iter  850/5000 | L_grad=0.045168 | L_div=-34.050377 | L_smooth=0.111821 | L_dist=0.001368 | Total=0.052127
+  Iter  900/5000 | L_grad=0.009293 | L_div=-32.059376 | L_smooth=0.112114 | L_dist=0.004601 | Total=0.019500
+  [Student reinit] at iter 900
+  Iter  950/5000 | L_grad=0.008523 | L_div=-34.460556 | L_smooth=0.092413 | L_dist=0.000960 | Total=0.014104
+  Iter 1000/5000 | L_grad=0.021636 | L_div=-47.020649 | L_smooth=0.080363 | L_dist=0.020492 | Total=0.046146
+  [Student reinit] at iter 1000
+  Iter 1050/5000 | L_grad=0.038283 | L_div=-34.409534 | L_smooth=0.088375 | L_dist=0.001016 | Total=0.043719
+  Iter 1100/5000 | L_grad=0.011501 | L_div=-28.887676 | L_smooth=0.084056 | L_dist=0.013770 | Total=0.029473
+  [Student reinit] at iter 1100
+  Iter 1150/5000 | L_grad=0.034198 | L_div=-40.840229 | L_smooth=0.069965 | L_dist=0.004083 | Total=0.041779
+  Iter 1200/5000 | L_grad=0.008923 | L_div=-38.575657 | L_smooth=0.076162 | L_dist=0.000793 | Total=0.013524
+  [Student reinit] at iter 1200
+  Iter 1250/5000 | L_grad=0.016911 | L_div=-34.170238 | L_smooth=0.067758 | L_dist=0.001233 | Total=0.021532
+  Iter 1300/5000 | L_grad=0.088151 | L_div=-37.054897 | L_smooth=0.063318 | L_dist=0.000061 | Total=0.091378
+  [Student reinit] at iter 1300
+  Iter 1350/5000 | L_grad=0.008735 | L_div=-42.981255 | L_smooth=0.062593 | L_dist=0.008411 | Total=0.020275
+  Iter 1400/5000 | L_grad=0.054428 | L_div=-35.520580 | L_smooth=0.060168 | L_dist=0.000260 | Total=0.057696
+  [Student reinit] at iter 1400
+  Iter 1450/5000 | L_grad=0.008330 | L_div=-36.183971 | L_smooth=0.059727 | L_dist=0.000052 | Total=0.011368
+  Iter 1500/5000 | L_grad=0.011688 | L_div=-34.250305 | L_smooth=0.053426 | L_dist=0.001212 | Total=0.015571
+  [Student reinit] at iter 1500
+  Iter 1550/5000 | L_grad=0.024488 | L_div=-32.241894 | L_smooth=0.055551 | L_dist=0.004174 | Total=0.031439
+  Iter 1600/5000 | L_grad=0.006041 | L_div=-33.441174 | L_smooth=0.052148 | L_dist=0.002155 | Total=0.010804
+  [Student reinit] at iter 1600
+  Iter 1650/5000 | L_grad=0.017010 | L_div=-38.185780 | L_smooth=0.045097 | L_dist=0.000529 | Total=0.019794
+  Iter 1700/5000 | L_grad=0.076640 | L_div=-36.009293 | L_smooth=0.050285 | L_dist=0.000075 | Total=0.079229
+  [Student reinit] at iter 1700
+  Iter 1750/5000 | L_grad=0.017861 | L_div=-33.795040 | L_smooth=0.045115 | L_dist=0.001698 | Total=0.021814
+  Iter 1800/5000 | L_grad=0.010748 | L_div=-36.721111 | L_smooth=0.045435 | L_dist=0.000012 | Total=0.013031
+  [Student reinit] at iter 1800
+  Iter 1850/5000 | L_grad=0.048916 | L_div=-36.298542 | L_smooth=0.042107 | L_dist=0.000023 | Total=0.051045
+  Iter 1900/5000 | L_grad=0.010824 | L_div=-37.831715 | L_smooth=0.045301 | L_dist=0.000317 | Total=0.013406
+  [Student reinit] at iter 1900
+  Iter 1950/5000 | L_grad=0.035796 | L_div=-36.472313 | L_smooth=0.049271 | L_dist=0.000009 | Total=0.038269
+  Iter 2000/5000 | L_grad=0.197796 | L_div=-35.729599 | L_smooth=0.046576 | L_dist=0.000156 | Total=0.200281
+  [Student reinit] at iter 2000
+  Iter 2050/5000 | L_grad=0.009313 | L_div=-34.825397 | L_smooth=0.043751 | L_dist=0.000633 | Total=0.012134
+  Iter 2100/5000 | L_grad=0.007452 | L_div=-36.476841 | L_smooth=0.046817 | L_dist=0.000046 | Total=0.009839
+  [Student reinit] at iter 2100
+  Iter 2150/5000 | L_grad=0.004549 | L_div=-35.980225 | L_smooth=0.050119 | L_dist=0.000092 | Total=0.007148
+  Iter 2200/5000 | L_grad=0.041598 | L_div=-34.806866 | L_smooth=0.042214 | L_dist=0.000654 | Total=0.044363
+  [Student reinit] at iter 2200
+  Iter 2250/5000 | L_grad=0.014218 | L_div=-36.879566 | L_smooth=0.037070 | L_dist=0.000055 | Total=0.016126
+  Iter 2300/5000 | L_grad=0.099381 | L_div=-32.150795 | L_smooth=0.038524 | L_dist=0.004310 | Total=0.105617
+  [Student reinit] at iter 2300
+  Iter 2350/5000 | L_grad=0.027917 | L_div=-37.376541 | L_smooth=0.037489 | L_dist=0.000161 | Total=0.029952
+  Iter 2400/5000 | L_grad=0.010733 | L_div=-34.686230 | L_smooth=0.033353 | L_dist=0.000749 | Total=0.013150
+  [Student reinit] at iter 2400
+  Iter 2450/5000 | L_grad=0.011116 | L_div=-34.824806 | L_smooth=0.038879 | L_dist=0.000630 | Total=0.013690
+  Iter 2500/5000 | L_grad=0.031682 | L_div=-35.037926 | L_smooth=0.034326 | L_dist=0.000495 | Total=0.033893
+  [Student reinit] at iter 2500
+  Iter 2550/5000 | L_grad=0.012488 | L_div=-40.961296 | L_smooth=0.036563 | L_dist=0.004031 | Total=0.018348
+  Iter 2600/5000 | L_grad=0.021067 | L_div=-33.963852 | L_smooth=0.033894 | L_dist=0.001436 | Total=0.024198
+  [Student reinit] at iter 2600
+  Iter 2650/5000 | L_grad=0.043401 | L_div=-39.374012 | L_smooth=0.038423 | L_dist=0.001771 | Total=0.047093
+  Iter 2700/5000 | L_grad=0.009744 | L_div=-35.891914 | L_smooth=0.031308 | L_dist=0.000111 | Total=0.011421
+  [Student reinit] at iter 2700
+  Iter 2750/5000 | L_grad=0.029815 | L_div=-35.474533 | L_smooth=0.038955 | L_dist=0.000283 | Total=0.032046
+  Iter 2800/5000 | L_grad=0.005393 | L_div=-35.644070 | L_smooth=0.032438 | L_dist=0.000192 | Total=0.007206
+  [Student reinit] at iter 2800
+  Iter 2850/5000 | L_grad=0.012957 | L_div=-39.577248 | L_smooth=0.033373 | L_dist=0.001901 | Total=0.016527
+  Iter 2900/5000 | L_grad=0.080603 | L_div=-36.160603 | L_smooth=0.037674 | L_dist=0.000130 | Total=0.082617
+  [Student reinit] at iter 2900
+  Iter 2950/5000 | L_grad=0.112000 | L_div=-36.184879 | L_smooth=0.035365 | L_dist=0.000085 | Total=0.113854
+  Iter 3000/5000 | L_grad=0.014197 | L_div=-34.039574 | L_smooth=0.038990 | L_dist=0.001304 | Total=0.017451
+  [Student reinit] at iter 3000
+  Iter 3050/5000 | L_grad=0.024234 | L_div=-36.885845 | L_smooth=0.041954 | L_dist=0.000143 | Total=0.026474
+  Iter 3100/5000 | L_grad=0.033173 | L_div=-36.418728 | L_smooth=0.039758 | L_dist=0.000083 | Total=0.035244
+  [Student reinit] at iter 3100
+  Iter 3150/5000 | L_grad=0.014487 | L_div=-33.238110 | L_smooth=0.033877 | L_dist=0.002355 | Total=0.018535
+  Iter 3200/5000 | L_grad=0.036626 | L_div=-37.196003 | L_smooth=0.040428 | L_dist=0.000264 | Total=0.038912
+  [Student reinit] at iter 3200
+  Iter 3250/5000 | L_grad=0.004534 | L_div=-32.246628 | L_smooth=0.039300 | L_dist=0.003920 | Total=0.010418
+  Iter 3300/5000 | L_grad=0.078113 | L_div=-40.083088 | L_smooth=0.037546 | L_dist=0.002940 | Total=0.082930
+  [Student reinit] at iter 3300
+  Iter 3350/5000 | L_grad=0.040778 | L_div=-37.986164 | L_smooth=0.032228 | L_dist=0.000577 | Total=0.042966
+  Iter 3400/5000 | L_grad=0.007971 | L_div=-36.875248 | L_smooth=0.033792 | L_dist=0.000204 | Total=0.009864
+  [Student reinit] at iter 3400
+  Iter 3450/5000 | L_grad=0.028185 | L_div=-38.047039 | L_smooth=0.043165 | L_dist=0.000714 | Total=0.031057
+  Iter 3500/5000 | L_grad=0.032531 | L_div=-37.613209 | L_smooth=0.039531 | L_dist=0.000690 | Total=0.035198
+  [Student reinit] at iter 3500
+  Iter 3550/5000 | L_grad=0.008363 | L_div=-36.395432 | L_smooth=0.046048 | L_dist=0.000152 | Total=0.010817
+  Iter 3600/5000 | L_grad=0.091061 | L_div=-37.129448 | L_smooth=0.044939 | L_dist=0.000468 | Total=0.093776
+  [Student reinit] at iter 3600
+  Iter 3650/5000 | L_grad=0.020616 | L_div=-36.546970 | L_smooth=0.052772 | L_dist=0.000337 | Total=0.023591
+  Iter 3700/5000 | L_grad=0.039754 | L_div=-35.547806 | L_smooth=0.041158 | L_dist=0.000307 | Total=0.042119
+  [Student reinit] at iter 3700
+  Iter 3750/5000 | L_grad=0.013659 | L_div=-38.827839 | L_smooth=0.045434 | L_dist=0.001349 | Total=0.017280
+  Iter 3800/5000 | L_grad=0.052231 | L_div=-40.172802 | L_smooth=0.055175 | L_dist=0.003408 | Total=0.058398
+  [Student reinit] at iter 3800
+  Iter 3850/5000 | L_grad=0.010160 | L_div=-38.263016 | L_smooth=0.055954 | L_dist=0.000975 | Total=0.013933
+  Iter 3900/5000 | L_grad=0.022935 | L_div=-33.564606 | L_smooth=0.050103 | L_dist=0.001868 | Total=0.027308
+  [Student reinit] at iter 3900
+  Iter 3950/5000 | L_grad=0.010979 | L_div=-36.842041 | L_smooth=0.064025 | L_dist=0.000169 | Total=0.014349
+  Iter 4000/5000 | L_grad=0.041994 | L_div=-37.477432 | L_smooth=0.052547 | L_dist=0.000997 | Total=0.045619
+  [Student reinit] at iter 4000
+  Iter 4050/5000 | L_grad=0.007386 | L_div=-37.127903 | L_smooth=0.067824 | L_dist=0.000575 | Total=0.011352
+  Iter 4100/5000 | L_grad=0.009501 | L_div=-35.893936 | L_smooth=0.057422 | L_dist=0.000666 | Total=0.013038
+  [Student reinit] at iter 4100
+  Iter 4150/5000 | L_grad=0.013400 | L_div=-35.823006 | L_smooth=0.044707 | L_dist=0.000286 | Total=0.015921
+  Iter 4200/5000 | L_grad=0.007926 | L_div=-37.163738 | L_smooth=0.059181 | L_dist=0.001038 | Total=0.011923
+  [Student reinit] at iter 4200
+  Iter 4250/5000 | L_grad=0.010737 | L_div=-36.666447 | L_smooth=0.060614 | L_dist=0.000358 | Total=0.014126
+  Iter 4300/5000 | L_grad=0.025534 | L_div=-35.628757 | L_smooth=0.068033 | L_dist=0.000466 | Total=0.029402
+  [Student reinit] at iter 4300
+  Iter 4350/5000 | L_grad=0.010265 | L_div=-33.910767 | L_smooth=0.039266 | L_dist=0.001452 | Total=0.013680
+  Iter 4400/5000 | L_grad=0.025370 | L_div=-37.449253 | L_smooth=0.055317 | L_dist=0.001128 | Total=0.029264
+  [Student reinit] at iter 4400
+  Iter 4450/5000 | L_grad=0.005918 | L_div=-34.240055 | L_smooth=0.068092 | L_dist=0.001284 | Total=0.010607
+  Iter 4500/5000 | L_grad=0.011032 | L_div=-38.982998 | L_smooth=0.059096 | L_dist=0.002539 | Total=0.016526
+  [Student reinit] at iter 4500
+  Iter 4550/5000 | L_grad=0.005555 | L_div=-36.867176 | L_smooth=0.056327 | L_dist=0.000423 | Total=0.008794
+  Iter 4600/5000 | L_grad=0.010224 | L_div=-33.857620 | L_smooth=0.070098 | L_dist=0.001601 | Total=0.015330
+  [Student reinit] at iter 4600
+  Iter 4650/5000 | L_grad=0.006295 | L_div=-33.451103 | L_smooth=0.059865 | L_dist=0.001981 | Total=0.011269
+  Iter 4700/5000 | L_grad=0.042526 | L_div=-34.287804 | L_smooth=0.051847 | L_dist=0.001163 | Total=0.046281
+  [Student reinit] at iter 4700
+  Iter 4750/5000 | L_grad=0.062237 | L_div=-38.001400 | L_smooth=0.053987 | L_dist=0.001114 | Total=0.066051
+  Iter 4800/5000 | L_grad=0.006900 | L_div=-30.791964 | L_smooth=0.048010 | L_dist=0.006976 | Total=0.016277
+  [Student reinit] at iter 4800
+  Iter 4850/5000 | L_grad=0.038786 | L_div=-39.323483 | L_smooth=0.056327 | L_dist=0.003004 | Total=0.044606
+  Iter 4900/5000 | L_grad=0.009312 | L_div=-33.957268 | L_smooth=0.065826 | L_dist=0.001544 | Total=0.014147
+  [Student reinit] at iter 4900
+  Iter 4950/5000 | L_grad=0.008667 | L_div=-37.924713 | L_smooth=0.065290 | L_dist=0.001332 | Total=0.013263
+  Iter 5000/5000 | L_grad=0.018296 | L_div=-34.805138 | L_smooth=0.062164 | L_dist=0.000817 | Total=0.022221
+  [Student reinit] at iter 5000
+[Aggregator] Phase 2 complete.
+
+
+[Aggregator] ── Phase 3: Generating synthetic dataset ──
+  Target rows : 25789
+  Generator calls: 51 × 512 steps
+[Gen] Synthetic timeseries saved → synthetic_timeseries.csv  (25789 rows)
+[Aggregator] Synthetic dataset saved → synthetic_timeseries.csv
+  Rows: 25789 | Mean %RH: 55.72 | Std %RH: 6.03 | Min: 43.07 | Max: 73.89
+[Aggregator] Saved gen_teacher.pt, gen_generator.pt, gen_stats.json
+[Aggregator] Done. Run evaluate_distilled.py to get the 3-way comparison.
+
+
+[Judge] Stats from results_4086490d31f1b185a283730c78676cecb87db597/gen_stats.json: mean=55.9031 std=6.0528
+[Client 1] annisse-indoor-climate-data_2014-2018.csv | train=20607 val=5158 holdout=11053 windows | local mean=61.12 std=7.89
+[Client 2] oerholm-indoor-climate-data_2009-2021.csv | train=20607 val=5158 holdout=11053 windows | local mean=50.68 std=4.22
+
+============================================================
+  Phase A: Judge trained on each client's REAL data
+============================================================
+
+[Judge-Real] Client 1 — training fresh CNN judge on real data...
+  [Judge-Real-C1] epoch   1/30 | train=0.105952 | val=0.058026
+  [Judge-Real-C1] epoch   5/30 | train=0.047756 | val=0.020984
+  [Judge-Real-C1] epoch  10/30 | train=0.040371 | val=0.029795
+  [Judge-Real-C1] epoch  15/30 | train=0.038218 | val=0.017674
+  [Judge-Real-C1] done | best_train=0.039563 | best_val=0.014985
+[Judge-Real C1] RMSE=0.920831 | MAE=0.549437 | R2=0.992433
+
+[Judge-Real] Client 2 — training fresh CNN judge on real data...
+  [Judge-Real-C2] epoch   1/30 | train=0.101044 | val=0.033758
+  [Judge-Real-C2] epoch   5/30 | train=0.042034 | val=0.020504
+  [Judge-Real-C2] epoch  10/30 | train=0.033444 | val=0.009141
+  [Judge-Real-C2] done | best_train=0.034892 | best_val=0.008016
+[Judge-Real C2] RMSE=0.562041 | MAE=0.404739 | R2=0.962048
+
+============================================================
+  Phase B: Judge trained on SYNTHETIC data
+============================================================
+
+[Judge-Syn] Training fresh CNN judge on synthetic data | total=25765 train=23189 val=2576 windows
+  [Judge-Syn] epoch   1/30 | train=0.099764 | val=0.029254
+  [Judge-Syn] epoch   5/30 | train=0.033032 | val=0.019649
+  [Judge-Syn] epoch  10/30 | train=0.027205 | val=0.006383
+  [Judge-Syn] epoch  15/30 | train=0.025223 | val=0.005513
+  [Judge-Syn] epoch  20/30 | train=0.023428 | val=0.002190
+  [Judge-Syn] epoch  25/30 | train=0.022434 | val=0.004489
+  [Judge-Syn] done | best_train=0.023428 | best_val=0.002190
+[Judge-Syn C1] RMSE=1.161156 | MAE=0.694826 | R2=0.987968
+[Judge-Syn C2] RMSE=0.476644 | MAE=0.310905 | R2=0.972705
+
+==================================================================================
+  Judge Evaluation (CNN1DRegressor) on REAL holdout data
+==================================================================================
+  Client   Trained on               RMSE        MAE         R2
+  -------- ------------------ ---------- ---------- ----------
+  1        Real (local)         0.920831   0.549437   0.992433
+  1        Synthetic            1.161156   0.694826   0.987968
+  -------- ------------------ ---------- ---------- ----------
+  2        Real (local)         0.562041   0.404739   0.962048
+  2        Synthetic            0.476644   0.310905   0.972705
+  -------- ------------------ ---------- ---------- ----------
+
+  Weighted average across all clients:
+  Real (local)       | RMSE=0.741436 | MAE=0.477088 | R2=0.977241
+  Synthetic          | RMSE=0.818900 | MAE=0.502866 | R2=0.980337
+
+  RMSE gap (Synthetic - Real): +0.077464
+  R2   gap (Synthetic - Real): +0.003096
+  (smaller gap = better distillation quality)
+
+  

@@ -221,6 +221,8 @@ def main():
     generator = Generator(
         latent_dim=LATENT_DIM,
         seq_out=GEN_SEQ_OUT,
+        rh_min=0.0,
+        rh_max=300.0,
     ).to(device)
     gen_optimizer = torch.optim.Adam(generator.parameters(),
                                      lr=args.gen_lr, betas=(0.5, 0.999))

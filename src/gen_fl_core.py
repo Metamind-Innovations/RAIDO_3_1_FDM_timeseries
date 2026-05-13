@@ -24,8 +24,8 @@ from torch.utils.data import DataLoader, Dataset
 from models import LSTMRegressor
 
 # ── Column names ──────────────────────────────────────────────────────────────
-TIMESTAMP_COL = "DATE AND TIME GMT"
-TARGET_COL = "%RH"
+TIMESTAMP_COL = "f_time"
+TARGET_COL = "n_value"
 TIME_FEATURES = ["hour_sin", "hour_cos", "month_sin", "month_cos"]
 FEATURE_COLUMNS = [TARGET_COL] + TIME_FEATURES
 MODEL_INPUT_DIM = len(FEATURE_COLUMNS)   # 5
@@ -51,24 +51,24 @@ class SeqDataset(Dataset):
 # ── CSV loading ───────────────────────────────────────────────────────────────
 
 def load_csv(csv_path: str) -> pd.DataFrame:
-    """Load semicolon-delimited climate CSV, keep timestamp + %RH only."""
-    df = pd.read_csv(csv_path, sep=";")
+    """Load comma-delimited pilot CSV, keep timestamp + n_value only."""
+    df = pd.read_csv(csv_path, sep=",")
     df.columns = [c.strip() for c in df.columns]
 
     # Flexible column matching
-    ts_candidates = ["DATE AND TIME", "DATE AND TIME GMT", "datetime", "Datetime", "timestamp"]
-    rh_candidates = ["%RH", "RH", "rh", "RelativeHumidity"]
+    ts_candidates = ["f_time", "DATE AND TIME", "DATE AND TIME GMT", "datetime", "Datetime", "timestamp"]
+    rh_candidates = ["n_value", "%RH", "RH", "rh", "RelativeHumidity"]
 
     ts_col = next((c for c in ts_candidates if c in df.columns), None)
     rh_col = next((c for c in rh_candidates if c in df.columns), None)
     if ts_col is None:
         raise ValueError(f"No timestamp column found. Columns: {df.columns.tolist()}")
     if rh_col is None:
-        raise ValueError(f"No %%RH column found. Columns: {df.columns.tolist()}")
+        raise ValueError(f"No target column found. Columns: {df.columns.tolist()}")
 
     df = df[[ts_col, rh_col]].copy()
     df.columns = [TIMESTAMP_COL, TARGET_COL]
-    df[TIMESTAMP_COL] = pd.to_datetime(df[TIMESTAMP_COL], dayfirst=True, errors="coerce")
+    df[TIMESTAMP_COL] = pd.to_datetime(df[TIMESTAMP_COL], utc=True, errors="coerce")
     df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors="coerce")
     df = df.dropna().sort_values(TIMESTAMP_COL).reset_index(drop=True)
     return df
@@ -237,7 +237,7 @@ def windows_from_synthetic_series(
         y: (N - seq_len,)   normalized
     """
     n = len(series)
-    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="h")
+    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="min")
     df = pd.DataFrame({TIMESTAMP_COL: timestamps, TARGET_COL: series.astype(np.float32)})
     df = add_time_features(df)
     return make_windows(df, seq_len, target_mean, target_std)
@@ -463,12 +463,12 @@ def save_synthetic_timeseries_csv(
     rh_values: np.ndarray,
     start_timestamp: str = "2009-01-01 00:00:00",
 ) -> None:
-    """Save generated %RH series as a semicolon-delimited CSV matching real format."""
+    """Save generated series as a comma-delimited CSV matching real format."""
     n = len(rh_values)
-    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="h")
+    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="min")
     df = pd.DataFrame({
-        TIMESTAMP_COL: timestamps.strftime("%d-%m-%Y %H:%M"),
+        TIMESTAMP_COL: timestamps.strftime("%Y-%m-%d %H:%M:%S"),
         TARGET_COL: rh_values.astype(np.float32),
     })
-    df.to_csv(output_path, sep=";", index=False)
+    df.to_csv(output_path, sep=",", index=False)
     print(f"[Gen] Synthetic timeseries saved → {output_path}  ({n} rows)")

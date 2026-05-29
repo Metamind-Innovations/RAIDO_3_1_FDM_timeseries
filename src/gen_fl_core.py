@@ -221,7 +221,7 @@ def windows_from_synthetic_series(
     seq_len: int,
     target_mean: float,
     target_std: float,
-    start_timestamp: str = "2009-01-01 00:00:00",
+    start_timestamp: str = "2024-01-01 00:00:00",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Convert a raw synthetic %RH series (N,) to sliding windows with time features.
@@ -276,7 +276,8 @@ def train_local_model(
     for epoch in range(epochs):
         model.train()
         running, n = 0.0, 0
-        for xb, yb in train_loader:
+        total_batches = len(train_loader)
+        for batch_idx, (xb, yb) in enumerate(train_loader):
             xb, yb = xb.to(device), yb.to(device)
             optimizer.zero_grad()
             loss = criterion(model(xb), yb)
@@ -289,6 +290,9 @@ def train_local_model(
             optimizer.step()
             running += loss.item() * xb.size(0)
             n += xb.size(0)
+            if (batch_idx + 1) % max(1, total_batches // 5) == 0 or (batch_idx + 1) == total_batches:
+                print(f"  epoch {epoch+1}/{epochs} | batch {batch_idx+1}/{total_batches} "
+                      f"| loss={running/n:.6f}", flush=True)
         train_loss = running / max(n, 1)
 
         val_loss = train_loss
@@ -302,6 +306,7 @@ def train_local_model(
                     vn += xb.size(0)
             val_loss = vr / max(vn, 1)
 
+        print(f"  epoch {epoch+1}/{epochs} DONE | train_loss={train_loss:.6f} | val_loss={val_loss:.6f}", flush=True)
         if epoch_callback:
             epoch_callback(epoch + 1, epochs, float(train_loss), float(val_loss))
 
@@ -461,7 +466,7 @@ def weighted_average_metric(eval_list: List[Dict], key: str) -> float:
 def save_synthetic_timeseries_csv(
     output_path: str,
     rh_values: np.ndarray,
-    start_timestamp: str = "2009-01-01 00:00:00",
+    start_timestamp: str = "2024-01-01 00:00:00",
 ) -> None:
     """Save generated series as a comma-delimited CSV matching real format."""
     n = len(rh_values)

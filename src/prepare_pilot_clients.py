@@ -14,7 +14,7 @@ import os
 import pandas as pd
 
 CLIENTS = [4728, 4730]
-KEEP_ROWS = 150_000
+KEEP_ROWS = 43_200
 OUT_DIR = "pilot_data/pilot_1_data/data_for_demo"
 
 

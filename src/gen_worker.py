@@ -112,7 +112,7 @@ def main():
             patience=args.patience,
             epoch_callback=lambda e, total, tr, va: print(
                 f"[Client {args.client_id}] Baseline epoch {e}/{total} | "
-                f"train={tr:.6f} | val={va:.6f}"
+                f"train={tr:.6f} | val={va:.6f}", flush=True
             ),
         )
         if args.baseline_pt:

@@ -1,3 +1,9 @@
+"""
+models.py
+Forecasting models: LSTMRegressor (teacher / student / baseline) and
+CNN1DRegressor (independent judge used by evaluate_judge.py).
+"""
+
 import torch
 import torch.nn as nn
 
@@ -7,6 +13,7 @@ class CNN1DRegressor(nn.Module):
     1D CNN regressor for (batch, seq_len, input_dim) time series.
     Used as an independent judge in evaluate_judge.py — a different
     architectural family from the LSTM teacher/student.
+    seq_len is accepted for interface symmetry but not used (global pooling).
     """
 
     def __init__(
@@ -44,6 +51,11 @@ class CNN1DRegressor(nn.Module):
 
 
 class LSTMRegressor(nn.Module):
+    """
+    Stacked LSTM + MLP head. Input (batch, seq_len, input_dim) → next-step
+    prediction (batch,) from the last timestep's hidden state.
+    """
+
     def __init__(
         self,
         input_dim: int = 5,

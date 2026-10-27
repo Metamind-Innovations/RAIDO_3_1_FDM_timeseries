@@ -1,15 +1,11 @@
 """
 gen_fl_core.py
-Data loading, balancing, windowing, and training utilities for the
-synthetic federated dataset distillation pipeline.
-
-Key differences from fl_core.py:
-  - CSV delimiter is semicolon (;)
-  - Dataset balancing: shorter dataset length used for both clients
-  - Synthetic series → windows helper
-  - Teacher gradient computation (frozen model)
-  - Discriminator update (local, client-side)
-  - FedAvg aggregation (reused logic)
+Shared utilities for the synthetic federated dataset distillation pipeline:
+  - dataset setups (climate / pilot) selected with --dataset
+  - CSV loading, time features, balancing, splits and windowing
+  - synthetic series → windows, and synthetic series → CSV
+  - local training (FedAvg / FedProx), FedAvg aggregation and evaluation
+  - teacher gradient computation and local discriminator updates
 """
 
 import math
@@ -77,6 +73,8 @@ LATENT_DIM = 128
 # ── Dataset ───────────────────────────────────────────────────────────────────
 
 class SeqDataset(Dataset):
+    """Wraps window arrays x (N, seq_len, features) and targets y (N,) as tensors."""
+
     def __init__(self, x: np.ndarray, y: np.ndarray):
         self.x = torch.tensor(x, dtype=torch.float32)
         self.y = torch.tensor(y, dtype=torch.float32)
@@ -95,7 +93,6 @@ def load_csv(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path, sep=DATASET["sep"])
     df.columns = [c.strip() for c in df.columns]
 
-    # Flexible column matching
     ts_candidates = ["f_time", "DATE AND TIME", "DATE AND TIME GMT", "datetime", "Datetime", "timestamp"]
     rh_candidates = ["n_value", "%RH", "RH", "rh", "RelativeHumidity"]
 
@@ -116,6 +113,7 @@ def load_csv(csv_path: str) -> pd.DataFrame:
 
 
 def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add cyclical hour-of-day and month-of-year sin/cos features."""
     df = df.copy()
     ts = pd.to_datetime(df[TIMESTAMP_COL], errors="coerce")
     hour = ts.dt.hour.astype(float)
@@ -189,6 +187,7 @@ def make_windows_with_context(
     target_mean: float,
     target_std: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """Windows for target_df rows, using the last seq_len rows of history_df as context."""
     ctx = pd.concat([history_df.tail(seq_len), target_df], ignore_index=True)
     x_all, y_all = make_windows(ctx, seq_len, target_mean, target_std)
     needed = len(target_df)
@@ -265,10 +264,10 @@ def windows_from_synthetic_series(
     start_timestamp: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Convert a raw synthetic %RH series (N,) to sliding windows with time features.
+    Convert a raw synthetic series (N,) to sliding windows with time features.
 
     Args:
-        series     : 1D array of %RH values, shape (N,)
+        series     : 1D array of raw target values, shape (N,)
         seq_len    : window length
         target_mean: normalization mean (from real training data)
         target_std : normalization std  (from real training data)
@@ -300,6 +299,10 @@ def train_local_model(
     patience: int = 5,
     epoch_callback=None,
 ) -> Tuple[LSTMRegressor, float, float]:
+    """
+    Train with Adam + MSE and early stopping on val loss (FedProx adds a proximal term).
+    Restores the best-val weights. Returns (model, best_train_loss, best_val_loss).
+    """
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
@@ -372,6 +375,7 @@ def fedavg(
     state_dicts: List[Dict[str, torch.Tensor]],
     weights: List[int],
 ) -> Dict[str, torch.Tensor]:
+    """Weighted average of client state dicts (weights = sample counts)."""
     total = float(sum(weights))
     out = {}
     for k in state_dicts[0].keys():
@@ -393,8 +397,7 @@ def compute_teacher_gradients(
     Returns grad dict {param_name: grad_tensor}.
     """
     teacher = teacher.to(device)
-    teacher.train()   # enable grad computation through BN/dropout
-    # Zero any existing grads
+    teacher.train()   # dropout active, matching how the student is trained
     for p in teacher.parameters():
         if p.grad is not None:
             p.grad.zero_()
@@ -439,7 +442,7 @@ def update_discriminator(
 ) -> float:
     """
     One discriminator update step.
-    real_series: (batch, 512, 1)  from client's real %RH
+    real_series: (batch, 512, 1)  from client's real target values
     fake_series: (batch, 512, 1)  from Generator (detached)
     Returns D_loss scalar.
     """
@@ -471,6 +474,7 @@ def evaluate_model(
     target_mean: float,
     target_std: float,
 ) -> Dict[str, float]:
+    """Denormalize predictions and targets, return MSE/RMSE/MAE/R2 and num_samples."""
     model = model.to(device)
     model.eval()
     preds, ys = [], []
@@ -494,6 +498,7 @@ def evaluate_model(
 
 
 def weighted_average_metric(eval_list: List[Dict], key: str) -> float:
+    """Average of metric `key` weighted by num_samples, skipping empty/NaN entries."""
     valid = [x for x in eval_list
              if int(x.get("num_samples", 0)) > 0
              and not math.isnan(float(x[key]))]

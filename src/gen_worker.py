@@ -3,15 +3,17 @@ gen_worker.py
 Client process for synthetic federated dataset distillation.
 
 Phases handled:
+  Stage 1 : Local baseline training (or load from --baseline_pt)
   Phase 1 : Federated teacher training (FedAvg / FedProx)
   Phase 2 : Distillation rounds
               - compute teacher gradients on real batch
-              - run local Discriminator on synthetic series → D_fake_loss
+              - run local Discriminator on synthetic series → input gradients
               - update Discriminator locally
   Evaluate: evaluate any model on holdout and return metrics
 
 Launch (one process per client):
     python gen_worker.py \
+        --dataset climate \
         --data_path <path_to_csv> \
         --host 127.0.0.1 --port 5100 \
         --client_id 1 \
@@ -23,10 +25,13 @@ Launch (one process per client):
 """
 
 import argparse
-import random
+import os
+import socket
+import time
 
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 
 from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
 import gen_fl_core
@@ -42,8 +47,6 @@ from gen_fl_core import (
 )
 from gen_models import Discriminator
 from models import LSTMRegressor
-
-import socket
 
 
 def main():
@@ -98,7 +101,6 @@ def main():
         num_layers=args.num_layers,
         dropout=args.dropout,
     )
-    import os
     if args.baseline_pt and os.path.exists(args.baseline_pt):
         baseline_model.load_state_dict(torch.load(args.baseline_pt, map_location="cpu"))
         baseline_model = baseline_model.to(device)
@@ -131,7 +133,6 @@ def main():
     )
 
     # ── Connect to aggregator (retry until aggregator is ready) ──────────────
-    import time
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     max_retries = 30
     retry_delay = 5  # seconds
@@ -171,16 +172,8 @@ def main():
                                       lr=args.disc_lr, betas=(0.5, 0.999))
 
     # ── Prebuilt real series batches for Discriminator ────────────────────────
-    # We keep the raw %RH values from training split as 512-step chunks
-    real_rh_series = torch.tensor(
-        meta["train_window_x"][:, :, 0],   # (N_windows, seq_len) normalized %RH
-        dtype=torch.float32
-    )  # shape (N_windows, seq_len) — will be used in 512-step chunks below
-
-    # Raw (denormalized) training %RH for discriminator real batches
-    # Build 512-step chunks from the training data
-    raw_train_rh = (meta["train_window_y"] * target_std + target_mean)  # denorm scalar y values
-    # Pad or tile to get full 512-step chunks
+    # Denormalized training targets, cut into consecutive 512-step chunks.
+    raw_train_rh = (meta["train_window_y"] * target_std + target_mean)
     n_chunks = max(1, len(raw_train_rh) // 512)
     real_chunks = []
     for i in range(n_chunks):
@@ -192,7 +185,7 @@ def main():
             np.stack(real_chunks), dtype=torch.float32
         ).unsqueeze(-1)   # (n_chunks, 512, 1)
     else:
-        # Fallback: tile y values
+        # Fewer than 512 training targets: tile them into a single chunk
         tiled = np.tile(raw_train_rh, (512 // len(raw_train_rh) + 1))[:512]
         real_chunks_tensor = torch.tensor(tiled, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
 
@@ -252,15 +245,15 @@ def main():
             state_dict = bytes_to_state_dict(msg["state_blob"])
             teacher_model.load_state_dict(state_dict)
             teacher_model.to(device)
-            # Freeze teacher — we only use it for gradient computation
+            # "Frozen" = never updated; params still need requires_grad so
+            # compute_teacher_gradients can read their gradients.
             for p in teacher_model.parameters():
-                p.requires_grad_(True)   # needs grad for compute_teacher_gradients
+                p.requires_grad_(True)
             print(f"[Client {args.client_id}] Teacher weights received and frozen.")
             send_msg(sock, {"type": "set_teacher_ack", "client_id": args.client_id})
 
         # ── Distillation round ────────────────────────────────────────────────
         elif msg_type == "distill_round":
-            # synthetic_series: list → numpy (batch, 512, 1)
             syn_np = np.array(msg["synthetic_series"], dtype=np.float32)
             synthetic_series = torch.tensor(syn_np, dtype=torch.float32)  # (batch,512,1)
 
@@ -269,7 +262,6 @@ def main():
             teacher_grads = compute_teacher_gradients(
                 teacher_model, xb_real, yb_real, device
             )
-            # Serialize grads: {name: list}
             grads_serialized = {k: v.cpu().tolist() for k, v in teacher_grads.items()}
 
             # 5b. Discriminator input gradients w.r.t. synthetic series.
@@ -295,7 +287,7 @@ def main():
             d_loss = update_discriminator(
                 discriminator, real_batch, fake_batch, disc_optimizer, device
             )
-            real_chunk_idx_val = real_chunk_idx + 1
+            real_chunk_idx += 1
 
             send_msg(sock, {
                 "type": "distill_result",
@@ -306,7 +298,6 @@ def main():
                 "d_input_grads": d_input_grads,
                 "d_loss": d_loss,
             })
-            real_chunk_idx = real_chunk_idx_val
 
         # ── Evaluate any model on holdout ─────────────────────────────────────
         elif msg_type == "evaluate":
@@ -330,9 +321,8 @@ def main():
                     meta["trainval_df"], meta["holdout_df"],
                     args.seq_len, eval_mean, eval_std,
                 )
-                from torch.utils.data import DataLoader as _DL
-                eval_loader = _DL(SeqDataset(x_h, y_h),
-                                  batch_size=args.batch_size, shuffle=False)
+                eval_loader = DataLoader(SeqDataset(x_h, y_h),
+                                         batch_size=args.batch_size, shuffle=False)
                 metrics = evaluate_model(eval_model, eval_loader, device,
                                          eval_mean, eval_std)
             else:

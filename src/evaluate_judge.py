@@ -13,7 +13,8 @@ All data is loaded directly from CSVs — no sockets, no running workers needed.
 
 Usage:
     python evaluate_judge.py \
-        --client_csvs <church_csv> <museum_csv> \
+        --dataset climate \
+        --client_csvs <client1_csv> <client2_csv> \
         --synthetic_csv best_synthetic_timeseries.csv \
         --stats_json best_gen_stats.json \
         --balanced_len 36842 \
@@ -28,10 +29,8 @@ import json
 import os
 from typing import Dict, List
 
-import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 
 import gen_fl_core
@@ -129,6 +128,7 @@ def holdout_loader_with_stats(
 # ── Judge factory + training ───────────────────────────────────────────────────
 
 def fresh_judge(hidden_channels: int, dropout: float, seq_len: int) -> CNN1DRegressor:
+    """New, untrained CNN judge."""
     return CNN1DRegressor(
         input_dim=MODEL_INPUT_DIM,
         seq_len=seq_len,
@@ -147,6 +147,7 @@ def train_judge(
     device: torch.device,
     label: str,
 ) -> CNN1DRegressor:
+    """Train a judge with early stopping, logging every 5th epoch."""
     judge, tr_loss, va_loss = train_local_model(
         model=judge,
         train_loader=train_loader,
@@ -279,6 +280,7 @@ def evaluate_synthetic(
 # ── Results table ──────────────────────────────────────────────────────────────
 
 def print_results(real_results: List[Dict], syn_results: List[Dict]) -> None:
+    """Print per-client and weighted-average Real vs Synthetic judge metrics and the gap."""
     real_map = {int(r["client_id"]): r["metrics"] for r in real_results}
     syn_map = {int(r["client_id"]): r["metrics"] for r in syn_results}
     all_cids = sorted(set(real_map) | set(syn_map))
@@ -332,7 +334,7 @@ def main():
     )
     parser.add_argument(
         "--client_csvs", nargs="+", required=True,
-        help="Client CSV paths in order, e.g. church.csv museum.csv"
+        help="Client CSV paths in client-id order"
     )
     parser.add_argument("--synthetic_csv", type=str, default="best_synthetic_timeseries.csv")
     parser.add_argument(

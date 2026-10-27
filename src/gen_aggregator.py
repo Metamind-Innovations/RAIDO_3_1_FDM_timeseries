@@ -2,17 +2,19 @@
 gen_aggregator.py
 Central server for synthetic federated dataset distillation.
 
-Phase 1 : Federated teacher training (FedAvg)
+Phase 1 : Federated teacher training (FedAvg / FedProx)
 Phase 2 : Generator distillation loop
-            - generate synthetic %RH series
+            - generate synthetic series
             - gradient matching (student grads vs aggregated teacher grads)
             - federated discriminator adversarial loss
-            - diversity loss
-            - Student reinit + retrain every K iterations (Option B)
-Phase 3 : Generate and save synthetic_timeseries.csv (35% of balanced data)
+            - diversity, temporal smoothness and distribution matching losses
+            - student reinit + retrain every K iterations
+Phase 3 : Generate and save the synthetic CSV (35% of balanced data by default)
+          plus gen_teacher.pt, gen_generator.pt and gen_stats.json
 
 Launch:
     python gen_aggregator.py \
+        --dataset climate \
         --host 0.0.0.0 --port 5100 \
         --num_clients 2 \
         --balanced_len 36842 \
@@ -24,12 +26,14 @@ Launch:
 """
 
 import argparse
+import json
 import socket
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 
 from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
 import gen_fl_core
@@ -47,12 +51,11 @@ from gen_fl_core import (
 from gen_models import Generator
 from models import LSTMRegressor
 
-from torch.utils.data import DataLoader
-
 
 # ── Socket helpers ─────────────────────────────────────────────────────────────
 
 def accept_clients(server_sock: socket.socket, num_clients: int):
+    """Wait for num_clients workers to register; returns [(conn, register_msg)]."""
     clients = []
     while len(clients) < num_clients:
         conn, addr = server_sock.accept()
@@ -72,6 +75,7 @@ def accept_clients(server_sock: socket.socket, num_clients: int):
 
 
 def request_evaluation(clients, model: LSTMRegressor, label: str) -> List[Dict]:
+    """Send model to every client for evaluation on its real holdout; collect results."""
     blob = state_dict_to_bytes(model.state_dict())
     for conn, _ in clients:
         send_msg(conn, {"type": "evaluate", "state_blob": blob, "eval_label": label})
@@ -94,7 +98,7 @@ def print_eval_block(title: str, results: List[Dict]) -> None:
         )
 
 
-# ── Student reinit + retrain (Option B) ───────────────────────────────────────
+# ── Student reinit + retrain ──────────────────────────────────────────────────
 
 def reinit_and_train_student(
     student: LSTMRegressor,
@@ -108,7 +112,6 @@ def reinit_and_train_student(
     device: torch.device,
 ) -> LSTMRegressor:
     """Reinitialise Student weights, then train for `steps` batches on current synthetic windows."""
-    # Reinitialise
     for layer in student.children():
         if hasattr(layer, "reset_parameters"):
             layer.reset_parameters()
@@ -141,6 +144,7 @@ def reinit_and_train_student(
 
 
 def _weight_init(m):
+    """Xavier for Linear/Conv layers, orthogonal for LSTM weights, zero biases."""
     if isinstance(m, (nn.Linear, nn.Conv1d, nn.ConvTranspose1d)):
         nn.init.xavier_uniform_(m.weight)
         if m.bias is not None:
@@ -188,7 +192,7 @@ def main():
     parser.add_argument("--w_diversity", type=float, default=0.0)
     parser.add_argument("--w_smooth", type=float, default=0.05,
                         help="Weight for temporal smoothness loss: penalises large "
-                             "hour-to-hour %RH jumps in the generated series.")
+                             "step-to-step jumps in the generated series.")
     parser.add_argument("--w_dist", type=float, default=0.5,
                         help="Weight for distribution matching loss: pushes synthetic "
                              "mean and std toward real training data statistics.")
@@ -211,7 +215,7 @@ def main():
     # Number of Generator calls needed (each produces GEN_SEQ_OUT=512 rows)
     gen_calls_needed = int(np.ceil(target_rows / GEN_SEQ_OUT))
     print(f"[Aggregator] Total balanced rows: {total_balanced}")
-    print(f"[Aggregator] Synthetic target rows (35%%): {target_rows}")
+    print(f"[Aggregator] Synthetic target rows: {target_rows}")
     print(f"[Aggregator] Generator calls to reach target: {gen_calls_needed}")
 
     # ── Networks ──────────────────────────────────────────────────────────────
@@ -350,35 +354,29 @@ def main():
         z = torch.randn(args.gen_batch, LATENT_DIM, device=device)
         synthetic_series = generator(z)   # (gen_batch, 512, 1)
 
-        # ── 4. Student gradients on synthetic windows (second-order) ─────────
-        # Use aggregated normalization stats if available, else skip gradient loss
-        if agg_target_mean is not None:
-            syn_np = synthetic_series.detach().cpu().numpy()
-            # Flatten all generated series into one sequence
-            flat_series = syn_np[:, :, 0].flatten()  # (gen_batch*512,)
-            x_syn, y_syn = windows_from_synthetic_series(
-                flat_series, args.seq_len, agg_target_mean, agg_target_std
+        # ── 4. Student gradients on synthetic windows ────────────────────────
+        syn_np = synthetic_series.detach().cpu().numpy()
+        flat_series = syn_np[:, :, 0].flatten()  # (gen_batch*512,)
+        x_syn, y_syn = windows_from_synthetic_series(
+            flat_series, args.seq_len, agg_target_mean, agg_target_std
+        )
+        if len(x_syn) > 0:
+            xb_syn = torch.tensor(x_syn, dtype=torch.float32, device=device)
+            yb_syn = torch.tensor(y_syn, dtype=torch.float32, device=device)
+            # CuDNN does not support double backwards for LSTMs.
+            # Disable it only for this forward pass so create_graph=True works.
+            with torch.backends.cudnn.flags(enabled=False):
+                student_loss = nn.MSELoss()(student(xb_syn), yb_syn)
+            manager_grads = torch.autograd.grad(
+                student_loss,
+                student.parameters(),
+                create_graph=True,
+                allow_unused=True,
             )
-            if len(x_syn) > 0:
-                xb_syn = torch.tensor(x_syn, dtype=torch.float32, device=device)
-                yb_syn = torch.tensor(y_syn, dtype=torch.float32, device=device)
-                # CuDNN does not support double backwards for LSTMs.
-                # Disable it only for this forward pass so create_graph=True works.
-                with torch.backends.cudnn.flags(enabled=False):
-                    student_loss = nn.MSELoss()(student(xb_syn), yb_syn)
-                manager_grads = torch.autograd.grad(
-                    student_loss,
-                    student.parameters(),
-                    create_graph=True,
-                    allow_unused=True,
-                )
-                # Replace None grads with zeros
-                manager_grads = [
-                    g if g is not None else torch.zeros_like(p)
-                    for g, p in zip(manager_grads, student.parameters())
-                ]
-            else:
-                manager_grads = None
+            manager_grads = [
+                g if g is not None else torch.zeros_like(p)
+                for g, p in zip(manager_grads, student.parameters())
+            ]
         else:
             manager_grads = None
 
@@ -417,7 +415,10 @@ def main():
         # ── 7. Compute Generator loss ─────────────────────────────────────────
         gen_optimizer.zero_grad()
 
-        # Gradient matching loss (second-order: grad flows through student → generator)
+        # Gradient matching loss.
+        # NOTE: the synthetic windows in step 4 are built from a detached numpy copy
+        # of synthetic_series, so this term currently sends no gradient to the
+        # Generator (w_gradient has no effect on training).
         if manager_grads is not None:
             param_names = [n for n, _ in student.named_parameters()]
             loss_gradient = sum(
@@ -432,9 +433,8 @@ def main():
         # high weight causes unrealistic hour-to-hour jumps).
         loss_diversity = -synthetic_series.var()
 
-        # Temporal smoothness: penalise large consecutive step differences.
-        # Real indoor %RH changes slowly (~0.5–2 %RH/h); this steers the Generator
-        # toward physically plausible output.
+        # Temporal smoothness: penalise large consecutive step differences,
+        # steering the Generator toward physically plausible, slowly varying output.
         diffs = synthetic_series[:, 1:, :] - synthetic_series[:, :-1, :]
         loss_smooth = diffs.pow(2).mean()
 
@@ -476,7 +476,7 @@ def main():
                 f"Total={float(total_loss):.6f}"
             )
 
-        # ── 9. Student reinit + retrain every K iterations (Option B) ─────────
+        # ── 9. Student reinit + retrain every K iterations ───────────────────
         if it % args.student_reinit_every == 0:
             syn_np_full = synthetic_series.detach().cpu().numpy()
             flat = syn_np_full[:, :, 0].flatten()
@@ -497,7 +497,7 @@ def main():
 
     print("[Aggregator] Phase 2 complete.")
 
-    # ── Phase 3: Generate synthetic_timeseries.csv ────────────────────────────
+    # ── Phase 3: Generate synthetic CSV ───────────────────────────────────────
     print(f"\n[Aggregator] ── Phase 3: Generating synthetic dataset ──")
     print(f"  Target rows : {target_rows}")
     print(f"  Generator calls: {gen_calls_needed} × {GEN_SEQ_OUT} steps")
@@ -516,12 +516,11 @@ def main():
     save_synthetic_timeseries_csv(args.synthetic_out, rh_concat)
     print(f"[Aggregator] Synthetic dataset saved → {args.synthetic_out}")
     print(f"  Rows: {len(rh_concat)} | "
-          f"Mean %RH: {rh_concat.mean():.2f} | "
-          f"Std %RH: {rh_concat.std():.2f} | "
+          f"Mean: {rh_concat.mean():.2f} | "
+          f"Std: {rh_concat.std():.2f} | "
           f"Min: {rh_concat.min():.2f} | Max: {rh_concat.max():.2f}")
 
     # ── Save teacher + generator + normalisation stats ───────────────────────
-    import json
     torch.save(global_teacher.state_dict(), "gen_teacher.pt")
     torch.save(generator.state_dict(), "gen_generator.pt")
     with open("gen_stats.json", "w") as f:

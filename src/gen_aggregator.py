@@ -32,6 +32,7 @@ import torch
 import torch.nn as nn
 
 from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
+import gen_fl_core
 from gen_fl_core import (
     MODEL_INPUT_DIM,
     GEN_SEQ_OUT,
@@ -196,7 +197,10 @@ def main():
     parser.add_argument("--target_rows", type=int, default=0,
                         help="Target synthetic rows (0 = 35%% of balanced_len * num_clients)")
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--dataset", type=str, default="climate", choices=["climate", "pilot"],
+                        help="Data setup: climate (Church/Museum %%RH) or pilot (pilot sensors).")
     args = parser.parse_args()
+    gen_fl_core.set_dataset(args.dataset)
 
     device = torch.device(args.device)
 
@@ -221,6 +225,8 @@ def main():
     generator = Generator(
         latent_dim=LATENT_DIM,
         seq_out=GEN_SEQ_OUT,
+        rh_min=gen_fl_core.DATASET["value_range"][0],
+        rh_max=gen_fl_core.DATASET["value_range"][1],
     ).to(device)
     gen_optimizer = torch.optim.Adam(generator.parameters(),
                                      lr=args.gen_lr, betas=(0.5, 0.999))
@@ -505,7 +511,7 @@ def main():
             all_rh.append(series[0, :, 0].cpu().numpy())
 
     rh_concat = np.concatenate(all_rh)[:target_rows]   # trim to exact target
-    rh_concat = np.clip(rh_concat, 0.0, 100.0)
+    rh_concat = np.clip(rh_concat, *gen_fl_core.DATASET["value_range"])
 
     save_synthetic_timeseries_csv(args.synthetic_out, rh_concat)
     print(f"[Aggregator] Synthetic dataset saved → {args.synthetic_out}")

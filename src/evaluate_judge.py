@@ -34,6 +34,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+import gen_fl_core
 from gen_fl_core import (
     MODEL_INPUT_DIM,
     TARGET_COL,
@@ -351,7 +352,10 @@ def main():
                         help="Override normalization mean (skips stats_json)")
     parser.add_argument("--target_std", type=float, default=None,
                         help="Override normalization std (skips stats_json)")
+    parser.add_argument("--dataset", type=str, default="climate", choices=["climate", "pilot"],
+                        help="Data setup: climate (Church/Museum %%RH) or pilot (pilot sensors).")
     args = parser.parse_args()
+    gen_fl_core.set_dataset(args.dataset)
 
     device = torch.device(args.device)
 

@@ -23,9 +23,49 @@ from torch.utils.data import DataLoader, Dataset
 
 from models import LSTMRegressor
 
-# ── Column names ──────────────────────────────────────────────────────────────
-TIMESTAMP_COL = "DATE AND TIME GMT"
-TARGET_COL = "%RH"
+# ── Dataset setups ────────────────────────────────────────────────────────────
+# Selected with --dataset in every entry-point script (see set_dataset).
+#   climate: Church/Museum indoor-climate CSVs (%RH, hourly, ';'-delimited)
+#   pilot  : pilot sensor CSVs from prepare_pilot_clients.py (n_value, 1-min, ',')
+DATASETS = {
+    "climate": {
+        "sep": ";",
+        "timestamp_col": "DATE AND TIME GMT",
+        "target_col": "%RH",
+        "dayfirst": True,
+        "utc": False,
+        "freq": "h",
+        "start_timestamp": "2009-01-01 00:00:00",
+        "timestamp_format": "%d-%m-%Y %H:%M",
+        "value_range": (0.0, 100.0),
+    },
+    "pilot": {
+        "sep": ",",
+        "timestamp_col": "f_time",
+        "target_col": "n_value",
+        "dayfirst": False,
+        "utc": True,
+        "freq": "min",
+        "start_timestamp": "2024-01-01 00:00:00",
+        "timestamp_format": "%Y-%m-%d %H:%M:%S",
+        "value_range": (0.0, 300.0),
+    },
+}
+DATASET_NAME = "climate"
+DATASET = DATASETS[DATASET_NAME]
+
+
+def set_dataset(name: str) -> None:
+    """Select the active dataset setup. Call once, right after parsing args."""
+    global DATASET_NAME, DATASET
+    DATASET_NAME = name
+    DATASET = DATASETS[name]
+    print(f"[Config] Dataset setup: {name}")
+
+
+# ── Column names (internal, after load_csv renames) ──────────────────────────
+TIMESTAMP_COL = "timestamp"
+TARGET_COL = "target"
 TIME_FEATURES = ["hour_sin", "hour_cos", "month_sin", "month_cos"]
 FEATURE_COLUMNS = [TARGET_COL] + TIME_FEATURES
 MODEL_INPUT_DIM = len(FEATURE_COLUMNS)   # 5
@@ -51,24 +91,25 @@ class SeqDataset(Dataset):
 # ── CSV loading ───────────────────────────────────────────────────────────────
 
 def load_csv(csv_path: str) -> pd.DataFrame:
-    """Load semicolon-delimited climate CSV, keep timestamp + %RH only."""
-    df = pd.read_csv(csv_path, sep=";")
+    """Load a client CSV for the active dataset setup, keep timestamp + target only."""
+    df = pd.read_csv(csv_path, sep=DATASET["sep"])
     df.columns = [c.strip() for c in df.columns]
 
     # Flexible column matching
-    ts_candidates = ["DATE AND TIME", "DATE AND TIME GMT", "datetime", "Datetime", "timestamp"]
-    rh_candidates = ["%RH", "RH", "rh", "RelativeHumidity"]
+    ts_candidates = ["f_time", "DATE AND TIME", "DATE AND TIME GMT", "datetime", "Datetime", "timestamp"]
+    rh_candidates = ["n_value", "%RH", "RH", "rh", "RelativeHumidity"]
 
     ts_col = next((c for c in ts_candidates if c in df.columns), None)
     rh_col = next((c for c in rh_candidates if c in df.columns), None)
     if ts_col is None:
         raise ValueError(f"No timestamp column found. Columns: {df.columns.tolist()}")
     if rh_col is None:
-        raise ValueError(f"No %%RH column found. Columns: {df.columns.tolist()}")
+        raise ValueError(f"No target column found. Columns: {df.columns.tolist()}")
 
     df = df[[ts_col, rh_col]].copy()
     df.columns = [TIMESTAMP_COL, TARGET_COL]
-    df[TIMESTAMP_COL] = pd.to_datetime(df[TIMESTAMP_COL], dayfirst=True, errors="coerce")
+    df[TIMESTAMP_COL] = pd.to_datetime(df[TIMESTAMP_COL], dayfirst=DATASET["dayfirst"],
+                                       utc=DATASET["utc"], errors="coerce")
     df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors="coerce")
     df = df.dropna().sort_values(TIMESTAMP_COL).reset_index(drop=True)
     return df
@@ -221,7 +262,7 @@ def windows_from_synthetic_series(
     seq_len: int,
     target_mean: float,
     target_std: float,
-    start_timestamp: str = "2009-01-01 00:00:00",
+    start_timestamp: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Convert a raw synthetic %RH series (N,) to sliding windows with time features.
@@ -231,13 +272,14 @@ def windows_from_synthetic_series(
         seq_len    : window length
         target_mean: normalization mean (from real training data)
         target_std : normalization std  (from real training data)
-        start_timestamp: synthetic start time (hourly spacing)
+        start_timestamp: synthetic start time (default and spacing from the dataset setup)
     Returns:
         x: (N - seq_len, seq_len, 5)
         y: (N - seq_len,)   normalized
     """
     n = len(series)
-    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="h")
+    timestamps = pd.date_range(start=start_timestamp or DATASET["start_timestamp"],
+                               periods=n, freq=DATASET["freq"])
     df = pd.DataFrame({TIMESTAMP_COL: timestamps, TARGET_COL: series.astype(np.float32)})
     df = add_time_features(df)
     return make_windows(df, seq_len, target_mean, target_std)
@@ -276,7 +318,8 @@ def train_local_model(
     for epoch in range(epochs):
         model.train()
         running, n = 0.0, 0
-        for xb, yb in train_loader:
+        total_batches = len(train_loader)
+        for batch_idx, (xb, yb) in enumerate(train_loader):
             xb, yb = xb.to(device), yb.to(device)
             optimizer.zero_grad()
             loss = criterion(model(xb), yb)
@@ -289,6 +332,9 @@ def train_local_model(
             optimizer.step()
             running += loss.item() * xb.size(0)
             n += xb.size(0)
+            if (batch_idx + 1) % max(1, total_batches // 5) == 0 or (batch_idx + 1) == total_batches:
+                print(f"  epoch {epoch+1}/{epochs} | batch {batch_idx+1}/{total_batches} "
+                      f"| loss={running/n:.6f}", flush=True)
         train_loss = running / max(n, 1)
 
         val_loss = train_loss
@@ -302,6 +348,7 @@ def train_local_model(
                     vn += xb.size(0)
             val_loss = vr / max(vn, 1)
 
+        print(f"  epoch {epoch+1}/{epochs} DONE | train_loss={train_loss:.6f} | val_loss={val_loss:.6f}", flush=True)
         if epoch_callback:
             epoch_callback(epoch + 1, epochs, float(train_loss), float(val_loss))
 
@@ -461,14 +508,15 @@ def weighted_average_metric(eval_list: List[Dict], key: str) -> float:
 def save_synthetic_timeseries_csv(
     output_path: str,
     rh_values: np.ndarray,
-    start_timestamp: str = "2009-01-01 00:00:00",
+    start_timestamp: Optional[str] = None,
 ) -> None:
-    """Save generated %RH series as a semicolon-delimited CSV matching real format."""
+    """Save generated series as a CSV matching the active dataset's real format."""
     n = len(rh_values)
-    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="h")
+    timestamps = pd.date_range(start=start_timestamp or DATASET["start_timestamp"],
+                               periods=n, freq=DATASET["freq"])
     df = pd.DataFrame({
-        TIMESTAMP_COL: timestamps.strftime("%d-%m-%Y %H:%M"),
-        TARGET_COL: rh_values.astype(np.float32),
+        DATASET["timestamp_col"]: timestamps.strftime(DATASET["timestamp_format"]),
+        DATASET["target_col"]: rh_values.astype(np.float32),
     })
-    df.to_csv(output_path, sep=";", index=False)
+    df.to_csv(output_path, sep=DATASET["sep"], index=False)
     print(f"[Gen] Synthetic timeseries saved → {output_path}  ({n} rows)")

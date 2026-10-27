@@ -29,6 +29,7 @@ import numpy as np
 import torch
 
 from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
+import gen_fl_core
 from gen_fl_core import (
     MODEL_INPUT_DIM,
     SeqDataset,
@@ -66,7 +67,10 @@ def main():
     parser.add_argument("--baseline_pt", type=str, default=None,
                         help="Path to save/load baseline model weights. "
                              "If the file exists, training is skipped and weights are loaded.")
+    parser.add_argument("--dataset", type=str, default="climate", choices=["climate", "pilot"],
+                        help="Data setup: climate (Church/Museum %%RH) or pilot (pilot sensors).")
     args = parser.parse_args()
+    gen_fl_core.set_dataset(args.dataset)
 
     device = torch.device(args.device)
 
@@ -112,7 +116,7 @@ def main():
             patience=args.patience,
             epoch_callback=lambda e, total, tr, va: print(
                 f"[Client {args.client_id}] Baseline epoch {e}/{total} | "
-                f"train={tr:.6f} | val={va:.6f}"
+                f"train={tr:.6f} | val={va:.6f}", flush=True
             ),
         )
         if args.baseline_pt:

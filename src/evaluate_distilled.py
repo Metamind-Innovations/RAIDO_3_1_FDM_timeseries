@@ -38,6 +38,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
+import gen_fl_core
 from gen_fl_core import (
     MODEL_INPUT_DIM,
     SeqDataset,
@@ -242,7 +243,10 @@ def main():
     # (less accurate but functional).
     parser.add_argument("--target_mean", type=float, default=None)
     parser.add_argument("--target_std", type=float, default=None)
+    parser.add_argument("--dataset", type=str, default="climate", choices=["climate", "pilot"],
+                        help="Data setup: climate (Church/Museum %%RH) or pilot (pilot sensors).")
     args = parser.parse_args()
+    gen_fl_core.set_dataset(args.dataset)
 
     device = torch.device(args.device)
 

@@ -1,9 +1,9 @@
 """
 gen_models.py
-Generator and Discriminator for 1D %RH synthetic time series generation.
+Generator and Discriminator for 1D synthetic time series generation.
 
-Generator  : latent z (batch, 128) → synthetic %RH series (batch, 512, 1)
-Discriminator: %RH series (batch, 512, 1) → real/fake score (batch, 1)
+Generator    : latent z (batch, 128) → synthetic series (batch, 512, 1)
+Discriminator: series (batch, 512, 1) → real/fake score (batch, 1)
 """
 
 import torch
@@ -14,8 +14,9 @@ class Generator(nn.Module):
     """
     1D CNN decoder.
     Input : latent vector z of shape (batch, latent_dim)
-    Output: synthetic %RH series of shape (batch, seq_out, 1)
+    Output: synthetic series of shape (batch, seq_out, 1)
             values scaled to [rh_min, rh_max] via Sigmoid
+            (the aggregator sets the range from the dataset setup)
     """
 
     def __init__(
@@ -73,7 +74,7 @@ class Generator(nn.Module):
 class Discriminator(nn.Module):
     """
     1D CNN classifier — stays local on each client.
-    Input : %RH series (batch, 512, 1)
+    Input : series (batch, 512, 1)
     Output: real/fake score (batch, 1)  in [0, 1]
     """
 

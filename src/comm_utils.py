@@ -1,3 +1,8 @@
+"""
+comm_utils.py
+Length-prefixed pickle messages over TCP sockets, and state-dict (de)serialization.
+"""
+
 import io
 import pickle
 import socket
@@ -8,6 +13,7 @@ import torch
 
 
 def recvall(sock: socket.socket, n: int) -> bytes:
+    """Read exactly n bytes from the socket."""
     data = b""
     while len(data) < n:
         packet = sock.recv(n - len(data))
@@ -18,12 +24,14 @@ def recvall(sock: socket.socket, n: int) -> bytes:
 
 
 def send_msg(sock: socket.socket, obj: Any) -> None:
+    """Send obj as pickle, prefixed with its 8-byte big-endian length."""
     payload = pickle.dumps(obj)
     header = struct.pack("!Q", len(payload))
     sock.sendall(header + payload)
 
 
 def recv_msg(sock: socket.socket) -> Any:
+    """Receive one message sent with send_msg."""
     raw_len = recvall(sock, 8)
     msg_len = struct.unpack("!Q", raw_len)[0]
     payload = recvall(sock, msg_len)

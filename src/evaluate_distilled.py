@@ -1,22 +1,24 @@
 """
 evaluate_distilled.py
-Phase 4: Train a Student on the synthetic dataset, then evaluate it on
-real client holdout sets alongside the Baseline and Federated Teacher.
+Train a Student LSTM on the synthetic dataset, then evaluate it on real
+client holdout sets alongside the Baseline and the Federated Teacher.
 
-Run AFTER gen_aggregator.py has finished and clients are still waiting,
-OR as a standalone script that reconnects to fresh worker processes.
+gen_aggregator.py shuts its workers down when it finishes, so start fresh
+worker processes on a separate port for this script. Normalisation stats are
+read from gen_stats.json next to --teacher_pt unless given explicitly.
 
-Usage (standalone — start fresh workers first):
-    # Terminal 1 (Church):
-    python gen_worker.py --data_path <church_csv> --client_id 1 \
+Usage:
+    # Terminal 1 (client 1):
+    python gen_worker.py --dataset climate --data_path <client1_csv> --client_id 1 \
         --balanced_len 36842 --port 5101 ...
 
-    # Terminal 2 (Museum):
-    python gen_worker.py --data_path <museum_csv> --client_id 2 \
+    # Terminal 2 (client 2):
+    python gen_worker.py --dataset climate --data_path <client2_csv> --client_id 2 \
         --balanced_len 36842 --port 5101 ...
 
     # Terminal 3:
     python evaluate_distilled.py \
+        --dataset climate \
         --synthetic_csv synthetic_timeseries.csv \
         --teacher_pt gen_teacher.pt \
         --host 127.0.0.1 --port 5101 \
@@ -29,28 +31,25 @@ Usage (standalone — start fresh workers first):
 """
 
 import argparse
+import json
+import os
 import socket
 from typing import Dict, List
 
-import numpy as np
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from comm_utils import bytes_to_state_dict, recv_msg, send_msg, state_dict_to_bytes
+from comm_utils import recv_msg, send_msg, state_dict_to_bytes
 import gen_fl_core
 from gen_fl_core import (
     MODEL_INPUT_DIM,
+    TARGET_COL,
     SeqDataset,
     load_csv,
     add_time_features,
-    split_df,
     make_windows,
-    make_windows_with_context,
     train_local_model,
-    evaluate_model,
     weighted_average_metric,
-    windows_from_synthetic_series,
 )
 from models import LSTMRegressor
 
@@ -58,6 +57,7 @@ from models import LSTMRegressor
 # ── Socket helpers ─────────────────────────────────────────────────────────────
 
 def accept_clients(server_sock: socket.socket, num_clients: int) -> List:
+    """Wait for num_clients workers to register; returns [(conn, register_msg)]."""
     clients = []
     while len(clients) < num_clients:
         conn, addr = server_sock.accept()
@@ -78,6 +78,10 @@ def request_evaluation(
     target_mean: float = None,
     target_std: float = None,
 ) -> List[Dict]:
+    """
+    Send model to every client for holdout evaluation. If target_mean/std are
+    given, clients rebuild their holdout windows with those stats.
+    """
     blob = state_dict_to_bytes(model.state_dict())
     msg = {"type": "evaluate", "state_blob": blob, "eval_label": label}
     if target_mean is not None and target_std is not None:
@@ -110,19 +114,15 @@ def train_student_on_synthetic(
     val_fraction: float = 0.1,
 ) -> LSTMRegressor:
     """
-    Load synthetic_timeseries.csv, build windows, train Student LSTM from scratch.
+    Load the synthetic CSV, build windows, train Student LSTM from scratch.
     Normalisation uses target_mean/target_std from real training data
     so the student's output space matches the teacher and the holdout evaluator.
+    The last val_fraction of windows is used for validation.
     """
     df_syn = load_csv(synthetic_csv)
     df_syn = add_time_features(df_syn)
 
-    from gen_fl_core import TARGET_COL, FEATURE_COLUMNS, _normalize
-    import pandas as pd
-
-    # Build windows directly (synthetic has no natural split boundary)
-    from gen_fl_core import make_windows as _make_windows
-    x_all, y_all = _make_windows(df_syn, seq_len, target_mean, target_std)
+    x_all, y_all = make_windows(df_syn, seq_len, target_mean, target_std)
 
     if len(x_all) == 0:
         raise ValueError("Synthetic CSV produced no windows — check the file.")
@@ -171,6 +171,7 @@ def print_comparison(
     teacher_results: List[Dict],
     student_results: List[Dict],
 ) -> None:
+    """Print per-client and weighted-average Baseline / Federated / Student metrics."""
     baseline_map = {int(x["client_id"]): x["metrics"] for x in baseline_results}
     teacher_map = {int(x["client_id"]): x["metrics"] for x in teacher_results}
     student_map = {int(x["client_id"]): x["metrics"] for x in student_results}
@@ -195,7 +196,6 @@ def print_comparison(
                       f"{m['rmse']:>10.6f} {m['mae']:>10.6f} {m['r2']:>10.6f}")
         print(f"  {'-'*8} {'-'*12} {'-'*10} {'-'*10} {'-'*10}")
 
-    # Weighted aggregates
     def _metrics_with_samples(results):
         return [{"num_samples": x["metrics"]["num_samples"], **x["metrics"]}
                 for x in results]
@@ -237,10 +237,9 @@ def main():
     parser.add_argument("--student_lr", type=float, default=5e-4)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--device", type=str, default="cpu")
-    # Normalisation stats for windowing the synthetic CSV
-    # These should match the real training data stats used during distillation.
-    # If unknown, the script estimates them from the synthetic CSV itself
-    # (less accurate but functional).
+    # Normalisation stats for windowing the synthetic CSV; should match the real
+    # training-data stats used during distillation. If omitted, they are read from
+    # gen_stats.json, or as a last resort estimated from the synthetic CSV itself.
     parser.add_argument("--target_mean", type=float, default=None)
     parser.add_argument("--target_std", type=float, default=None)
     parser.add_argument("--dataset", type=str, default="climate", choices=["climate", "pilot"],
@@ -286,7 +285,6 @@ def main():
                                                         int(client_weights[0]))
 
     # ── Determine normalisation stats ─────────────────────────────────────────
-    import json, os
     stats_path = os.path.join(os.path.dirname(args.teacher_pt), "gen_stats.json")
     if args.target_mean is not None and args.target_std is not None:
         target_mean = args.target_mean
@@ -302,7 +300,6 @@ def main():
     else:
         # Fallback: estimate from synthetic CSV (inaccurate — prefer gen_stats.json)
         df_syn = load_csv(args.synthetic_csv)
-        from gen_fl_core import TARGET_COL
         target_mean = float(df_syn[TARGET_COL].mean())
         target_std = float(max(df_syn[TARGET_COL].std(ddof=0), 1e-6))
         print(f"[Eval] WARNING: gen_stats.json not found. "

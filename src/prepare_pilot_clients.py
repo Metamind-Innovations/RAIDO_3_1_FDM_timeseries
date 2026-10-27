@@ -19,6 +19,7 @@ OUT_DIR = "pilot_data/pilot_1_data/data_for_demo"
 
 
 def prepare_client(df: pd.DataFrame, nup: int) -> pd.DataFrame:
+    """Extract one sensor's series on a gap-free 1-min grid, keeping the last KEEP_ROWS rows."""
     client = (
         df[df["n_up"] == nup][["f_time", "n_value"]]
         .sort_values("f_time")
@@ -33,7 +34,7 @@ def prepare_client(df: pd.DataFrame, nup: int) -> pd.DataFrame:
     client = client.reindex(full_idx)
     client["n_value"] = client["n_value"].interpolate(method="linear")
 
-    # keep the most recent 150k points
+    # keep the most recent KEEP_ROWS points (43,200 = 30 days at 1-min)
     client = client.iloc[-KEEP_ROWS:]
 
     return client

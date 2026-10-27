@@ -246,7 +246,7 @@ The synthetic-trained judge comes within 10.5% of the real-data judge on RMSE, w
 
 ## 📝 Paper & Citation
 
-This repository is the official implementation of the paper *EnrichTS+: Pioneering Federated GAN-based Distillation for Privacy-Preserving Synthesis of Univariate Time Series*, presented at the [IEEE International Conference on Cyber Humanities (IEEE-CH)](https://www.ieee-ch.org/) ([conference program](https://www.ieee-ch.org/conference-program/#1735925815714-ba5e4cbb-9e6f)). It was developed by [MetaMind Innovations](https://metamind.gr/) within the [RAIDO Project](https://raido-project.eu/).
+This repository is the official implementation of the paper *EnrichTS+: Pioneering Federated GAN-based Distillation for Privacy-Preserving Synthesis of Univariate Time Series*, presented at the [IEEE International Conference on Cyber Humanities (IEEE-CH)](https://www.ieee-ch.org/). It was developed by [MetaMind Innovations](https://metamind.gr/) within the [RAIDO Project](https://raido-project.eu/).
 
 The DOI is not available yet; this entry will be updated once the proceedings are published.
 

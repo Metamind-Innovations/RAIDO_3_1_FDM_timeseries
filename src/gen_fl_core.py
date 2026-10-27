@@ -23,9 +23,49 @@ from torch.utils.data import DataLoader, Dataset
 
 from models import LSTMRegressor
 
-# ── Column names ──────────────────────────────────────────────────────────────
-TIMESTAMP_COL = "f_time"
-TARGET_COL = "n_value"
+# ── Dataset setups ────────────────────────────────────────────────────────────
+# Selected with --dataset in every entry-point script (see set_dataset).
+#   climate: Church/Museum indoor-climate CSVs (%RH, hourly, ';'-delimited)
+#   pilot  : pilot sensor CSVs from prepare_pilot_clients.py (n_value, 1-min, ',')
+DATASETS = {
+    "climate": {
+        "sep": ";",
+        "timestamp_col": "DATE AND TIME GMT",
+        "target_col": "%RH",
+        "dayfirst": True,
+        "utc": False,
+        "freq": "h",
+        "start_timestamp": "2009-01-01 00:00:00",
+        "timestamp_format": "%d-%m-%Y %H:%M",
+        "value_range": (0.0, 100.0),
+    },
+    "pilot": {
+        "sep": ",",
+        "timestamp_col": "f_time",
+        "target_col": "n_value",
+        "dayfirst": False,
+        "utc": True,
+        "freq": "min",
+        "start_timestamp": "2024-01-01 00:00:00",
+        "timestamp_format": "%Y-%m-%d %H:%M:%S",
+        "value_range": (0.0, 300.0),
+    },
+}
+DATASET_NAME = "climate"
+DATASET = DATASETS[DATASET_NAME]
+
+
+def set_dataset(name: str) -> None:
+    """Select the active dataset setup. Call once, right after parsing args."""
+    global DATASET_NAME, DATASET
+    DATASET_NAME = name
+    DATASET = DATASETS[name]
+    print(f"[Config] Dataset setup: {name}")
+
+
+# ── Column names (internal, after load_csv renames) ──────────────────────────
+TIMESTAMP_COL = "timestamp"
+TARGET_COL = "target"
 TIME_FEATURES = ["hour_sin", "hour_cos", "month_sin", "month_cos"]
 FEATURE_COLUMNS = [TARGET_COL] + TIME_FEATURES
 MODEL_INPUT_DIM = len(FEATURE_COLUMNS)   # 5
@@ -51,8 +91,8 @@ class SeqDataset(Dataset):
 # ── CSV loading ───────────────────────────────────────────────────────────────
 
 def load_csv(csv_path: str) -> pd.DataFrame:
-    """Load comma-delimited pilot CSV, keep timestamp + n_value only."""
-    df = pd.read_csv(csv_path, sep=",")
+    """Load a client CSV for the active dataset setup, keep timestamp + target only."""
+    df = pd.read_csv(csv_path, sep=DATASET["sep"])
     df.columns = [c.strip() for c in df.columns]
 
     # Flexible column matching
@@ -68,7 +108,8 @@ def load_csv(csv_path: str) -> pd.DataFrame:
 
     df = df[[ts_col, rh_col]].copy()
     df.columns = [TIMESTAMP_COL, TARGET_COL]
-    df[TIMESTAMP_COL] = pd.to_datetime(df[TIMESTAMP_COL], utc=True, errors="coerce")
+    df[TIMESTAMP_COL] = pd.to_datetime(df[TIMESTAMP_COL], dayfirst=DATASET["dayfirst"],
+                                       utc=DATASET["utc"], errors="coerce")
     df[TARGET_COL] = pd.to_numeric(df[TARGET_COL], errors="coerce")
     df = df.dropna().sort_values(TIMESTAMP_COL).reset_index(drop=True)
     return df
@@ -221,7 +262,7 @@ def windows_from_synthetic_series(
     seq_len: int,
     target_mean: float,
     target_std: float,
-    start_timestamp: str = "2024-01-01 00:00:00",
+    start_timestamp: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Convert a raw synthetic %RH series (N,) to sliding windows with time features.
@@ -231,13 +272,14 @@ def windows_from_synthetic_series(
         seq_len    : window length
         target_mean: normalization mean (from real training data)
         target_std : normalization std  (from real training data)
-        start_timestamp: synthetic start time (hourly spacing)
+        start_timestamp: synthetic start time (default and spacing from the dataset setup)
     Returns:
         x: (N - seq_len, seq_len, 5)
         y: (N - seq_len,)   normalized
     """
     n = len(series)
-    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="min")
+    timestamps = pd.date_range(start=start_timestamp or DATASET["start_timestamp"],
+                               periods=n, freq=DATASET["freq"])
     df = pd.DataFrame({TIMESTAMP_COL: timestamps, TARGET_COL: series.astype(np.float32)})
     df = add_time_features(df)
     return make_windows(df, seq_len, target_mean, target_std)
@@ -466,14 +508,15 @@ def weighted_average_metric(eval_list: List[Dict], key: str) -> float:
 def save_synthetic_timeseries_csv(
     output_path: str,
     rh_values: np.ndarray,
-    start_timestamp: str = "2024-01-01 00:00:00",
+    start_timestamp: Optional[str] = None,
 ) -> None:
-    """Save generated series as a comma-delimited CSV matching real format."""
+    """Save generated series as a CSV matching the active dataset's real format."""
     n = len(rh_values)
-    timestamps = pd.date_range(start=start_timestamp, periods=n, freq="min")
+    timestamps = pd.date_range(start=start_timestamp or DATASET["start_timestamp"],
+                               periods=n, freq=DATASET["freq"])
     df = pd.DataFrame({
-        TIMESTAMP_COL: timestamps.strftime("%Y-%m-%d %H:%M:%S"),
-        TARGET_COL: rh_values.astype(np.float32),
+        DATASET["timestamp_col"]: timestamps.strftime(DATASET["timestamp_format"]),
+        DATASET["target_col"]: rh_values.astype(np.float32),
     })
-    df.to_csv(output_path, sep=",", index=False)
+    df.to_csv(output_path, sep=DATASET["sep"], index=False)
     print(f"[Gen] Synthetic timeseries saved → {output_path}  ({n} rows)")

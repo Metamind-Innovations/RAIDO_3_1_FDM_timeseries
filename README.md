@@ -68,7 +68,11 @@ The data format is selected with `--dataset {climate,pilot}`, which **must be pa
 
 ### Climate data (paper)
 
-Two indoor-climate datasets from Danish cultural-heritage sites, from the National Museum of Denmark's [`orholm-prediction-demo`](https://github.com/DBCDK/orholm-prediction-demo) repository. Download it into the repository root so the files are at:
+Two real-world hourly indoor-climate datasets from cultural-heritage monitoring deployments, introduced in:
+
+> C. Boesgaard, B. V. Hansen, U. B. Kejser, S. Mollerup, M. Ryhl-Svendsen, and N. Torp-Smith, "Prediction of the indoor climate in cultural heritage buildings through machine learning: first results from two field tests," *npj Heritage Science*, vol. 10, no. 1, p. 176, 2022.
+
+The scripts expect the files at:
 
 ```
 DBCDK-orholm-prediction-demo-4b15ae5/climate-data/annisse-indoor-climate-data_2014-2018.csv   # Client 1
@@ -242,7 +246,7 @@ The synthetic-trained judge comes within 10.5% of the real-data judge on RMSE, w
 
 ## 📝 Paper & Citation
 
-This repository is the official implementation of the paper *EnrichTS+: Pioneering Federated GAN-based Distillation for Privacy-Preserving Synthesis of Univariate Time Series*, presented at the [IEEE International Conference on Cyber Humanities (IEEE-CH)](https://www.ieee-ch.org/conference-program/#1735925815714-ba5e4cbb-9e6f). It was developed by [MetaMind Innovations](https://metamind.gr/) within the [RAIDO Project](https://raido-project.eu/).
+This repository is the official implementation of the paper *EnrichTS+: Pioneering Federated GAN-based Distillation for Privacy-Preserving Synthesis of Univariate Time Series*, presented at the [IEEE International Conference on Cyber Humanities (IEEE-CH)](https://www.ieee-ch.org/) ([conference program](https://www.ieee-ch.org/conference-program/#1735925815714-ba5e4cbb-9e6f)). It was developed by [MetaMind Innovations](https://metamind.gr/) within the [RAIDO Project](https://raido-project.eu/).
 
 The DOI is not available yet; this entry will be updated once the proceedings are published.
 
